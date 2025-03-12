@@ -8,7 +8,7 @@ import json
 import datetime
 from pathlib import Path
 
-from cbz_webp_converter.utils import get_file_size_formatted
+from cbxtools.utils import get_file_size_formatted
 
 
 class StatsTracker:
@@ -18,7 +18,7 @@ class StatsTracker:
         """Initialize the stats tracker with an optional stats file path."""
         if stats_file is None:
             # Default to a stats file in the user's home directory
-            self.stats_file = Path.home() / '.cbz_webp_stats.json'
+            self.stats_file = Path.home() / '.cbx-tools-stats.json'
         else:
             self.stats_file = Path(stats_file)
         

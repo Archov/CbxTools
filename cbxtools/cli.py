@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
 """
-CBZ/CBR to WebP Converter
-
-This script extracts images from CBZ/CBR files and converts them to WebP format
-with configurable compression quality and maximum dimensions.
-
-Requirements:
-    - Python 3.6+
-    - pip install pillow rarfile patool concurrent-log-handler
+Command-line interface for CBZ/CBR to WebP converter.
 """
 
 import sys
@@ -15,11 +8,10 @@ import time
 import argparse
 from pathlib import Path
 
-# Import modules from our package
-from cbz_webp_converter.utils import setup_logging
-from cbz_webp_converter.archive_utils import find_comic_archives
-from cbz_webp_converter.conversion import process_single_file, process_archive_files
-from cbz_webp_converter.stats import StatsTracker, print_summary_report, print_lifetime_stats
+from cbxtools.utils import setup_logging
+from cbxtools.archive_utils import find_comic_archives
+from cbxtools.conversion import process_single_file, process_archive_files
+from cbxtools.stats import StatsTracker, print_summary_report, print_lifetime_stats
 
 
 def parse_arguments():
@@ -55,6 +47,7 @@ def parse_arguments():
 
 
 def main():
+    """Main entry point for the command-line interface."""
     args = parse_arguments()
     
     # Set up logging
@@ -70,6 +63,11 @@ def main():
         else:
             logger.error("Cannot show stats when --no-stats is specified")
         return 0
+    
+    # Check if args is missing either positional argument when not in stats-only mode
+    if args.stats_only == False and (not hasattr(args, 'input_path') or not hasattr(args, 'output_dir')):
+        logger.error("Both input_path and output_dir are required when not in stats-only mode")
+        return 1
     
     input_path = Path(args.input_path).resolve()
     output_dir = Path(args.output_dir).resolve()

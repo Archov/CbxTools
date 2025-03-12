@@ -11,8 +11,8 @@ from pathlib import Path
 from PIL import Image
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from cbz_webp_converter.utils import get_file_size_formatted
-from cbz_webp_converter.archive_utils import extract_archive, create_cbz
+from cbxtools.utils import get_file_size_formatted
+from cbxtools.archive_utils import extract_archive, create_cbz
 
 
 def convert_single_image(args):
@@ -85,7 +85,7 @@ def convert_to_webp(extract_dir, output_dir, quality, max_width=0, max_height=0,
         webp_path = output_dir / rel_path.with_suffix('.webp')
         conversion_args.append((img_path, webp_path, quality, max_width, max_height))
     
-    # Process images in parallel
+    # Process images in parallel using multiple processes for maximum performance
     success_count = 0
     with ProcessPoolExecutor(max_workers=num_threads) as executor:
         futures = [executor.submit(convert_single_image, args) for args in conversion_args]

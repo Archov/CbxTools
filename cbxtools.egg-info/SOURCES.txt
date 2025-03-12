@@ -1,0 +1,15 @@
+README.md
+setup.py
+cbxtools/__init__.py
+cbxtools/__main__.py
+cbxtools/archive-utils.py
+cbxtools/cli.py
+cbxtools/conversion.py
+cbxtools/stats.py
+cbxtools/utils.py
+cbxtools.egg-info/PKG-INFO
+cbxtools.egg-info/SOURCES.txt
+cbxtools.egg-info/dependency_links.txt
+cbxtools.egg-info/entry_points.txt
+cbxtools.egg-info/requires.txt
+cbxtools.egg-info/top_level.txt
