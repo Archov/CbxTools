@@ -316,7 +316,11 @@ def process_single_file(
                         logger.debug(f"Removed extracted files from {file_output_dir}")
 
             logger.info(f"Conversion of {input_file.name} completed successfully!")
-            return True, orig_size_bytes, 0 if no_cbz else new_size_bytes
+            # Include the compression level in the queue item
+            packaging_queue.put((file_output_dir, cbz_output, input_file, result_dict, zip_compresslevel))
+            logger.info(f"Queued {input_file.name} for packaging")
+            # Return original size for statistics tracking
+            return True, orig_size_bytes, result_dict
 
         except Exception as e:
             logger.error(f"Error processing {input_file}: {e}")
