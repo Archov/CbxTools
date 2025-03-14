@@ -12,286 +12,321 @@ from PIL import Image
 import queue
 import threading
 import time
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from cbxtools.utils import get_file_size_formatted
-from cbxtools.archive_utils import extract_archive, create_cbz
+from .utils import get_file_size_formatted
+from .archives import extract_archive, create_cbz
 
 
 def convert_single_image(args):
-    """Convert a single image to WebP format. This function runs in a separate process."""
-    img_path, webp_path, quality, max_width, max_height = args
-    
+    """Convert a single image to WebP format with optimized parameters. Runs in a separate process."""
+    img_path, webp_path, quality, max_width, max_height, method, sharp_yuv, preprocessing = args
     try:
-        # Create parent directories if they don't exist
         webp_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Open and convert image
         with Image.open(img_path) as img:
-            # Resize if needed
             width, height = img.size
-            resize_needed = False
             scale_factor = 1.0
-            
-            # Check if we need to resize based on max width
+
+            # Enforce max width/height if requested
             if max_width > 0 and width > max_width:
                 scale_factor = min(scale_factor, max_width / width)
-                resize_needed = True
-            
-            # Check if we need to resize based on max height
             if max_height > 0 and height > max_height:
                 scale_factor = min(scale_factor, max_height / height)
-                resize_needed = True
+
+            if scale_factor < 1.0:
+                new_w = int(width * scale_factor)
+                new_h = int(height * scale_factor)
+                img = img.resize((new_w, new_h), Image.LANCZOS)
             
-            # Apply resize if needed
-            if resize_needed:
-                new_width = int(width * scale_factor)
-                new_height = int(height * scale_factor)
-                img = img.resize((new_width, new_height), Image.LANCZOS)
+            # Apply preprocessing if requested
+            if preprocessing == 'unsharp_mask':
+                from PIL import ImageFilter
+                img = img.filter(ImageFilter.UnsharpMask(radius=1.5, percent=50, threshold=3))
+            elif preprocessing == 'reduce_noise':
+                from PIL import ImageFilter
+                blurred = img.filter(ImageFilter.GaussianBlur(radius=0.5))
+                img = Image.blend(img, blurred, 0.1).filter(ImageFilter.SHARPEN)
+
+            # Advanced WebP parameters for optimal compression
+            webp_options = {
+                'quality': quality,
+                'method': method,        # Compression method (0-6), higher is better but slower
+                'lossless': False,       # Use lossy compression for smaller files
+            }
             
-            # Save as WebP
-            img.save(webp_path, 'WEBP', quality=quality)
-        
+            # Add sharp_yuv option for better text rendering if specified
+            if sharp_yuv:
+                webp_options['sharp_yuv'] = True
+            
+            # Save as WebP with optimized parameters
+            img.save(webp_path, 'WEBP', **webp_options)
+
         return (img_path, webp_path, True, None)
     except Exception as e:
         return (img_path, webp_path, False, str(e))
 
 
-def convert_to_webp(extract_dir, output_dir, quality, max_width=0, max_height=0, num_threads=0, logger=None):
-    """Convert all images in extract_dir to WebP format and save to output_dir."""
-    image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'}
+def convert_to_webp(extract_dir, output_dir, quality, max_width=0, max_height=0, 
+               num_threads=0, method=4, sharp_yuv=False, preprocessing=None, logger=None):
+    """Convert all images in extract_dir to WebP format, saving to output_dir with optimized parameters."""
+    image_exts = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'}
     source_files = []
-    
-    # Find all image files in extract_dir and its subdirectories
+
     for root, _, files in os.walk(extract_dir):
         for file in files:
-            if Path(file).suffix.lower() in image_extensions:
+            if Path(file).suffix.lower() in image_exts:
                 source_files.append(Path(root) / file)
-    
-    # Sort files to maintain order
+
     source_files.sort()
-    
-    # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Calculate default number of threads
+
     if num_threads <= 0:
         num_threads = multiprocessing.cpu_count()
-    
-    logger.info(f"Converting {len(source_files)} images to WebP format using {num_threads} threads...")
-    
-    # Prepare arguments for parallel processing
+
+    logger.info(f"Converting {len(source_files)} images to WebP using {num_threads} threads...")
+    logger.info(f"WebP parameters: quality={quality}, method={method}, sharp_yuv={sharp_yuv}, preprocessing={preprocessing}")
+
     conversion_args = []
     for img_path in source_files:
-        # Use relative path for output, preserving directory structure
         rel_path = img_path.relative_to(extract_dir)
         webp_path = output_dir / rel_path.with_suffix('.webp')
-        conversion_args.append((img_path, webp_path, quality, max_width, max_height))
-    
-    # Process images in parallel using multiple processes for maximum performance
+        conversion_args.append((img_path, webp_path, quality, max_width, max_height, method, sharp_yuv, preprocessing))
+
     success_count = 0
-    with ProcessPoolExecutor(max_workers=num_threads) as executor:
-        futures = [executor.submit(convert_single_image, args) for args in conversion_args]
-        
-        for i, future in enumerate(as_completed(futures), 1):
-            img_path, webp_path, success, error = future.result()
-            rel_path = img_path.relative_to(extract_dir)
-            
-            if success:
-                logger.debug(f"[{i}/{len(source_files)}] Converted: {rel_path} -> {webp_path.name}")
-                success_count += 1
-            else:
-                logger.error(f"Error converting {rel_path}: {error}")
+    total_orig_size = 0
+    total_webp_size = 0
     
-    logger.info(f"Successfully converted {success_count}/{len(source_files)} images")
+    with ProcessPoolExecutor(max_workers=num_threads) as executor:
+        futures = [executor.submit(convert_single_image, x) for x in conversion_args]
+        for i, fut in enumerate(as_completed(futures), 1):
+            img_path, webp_path, success, error = fut.result()
+            if success:
+                # Calculate compression ratio for reporting
+                orig_size = img_path.stat().st_size
+                webp_size = webp_path.stat().st_size
+                total_orig_size += orig_size
+                total_webp_size += webp_size
+                
+                savings_pct = (1 - webp_size / orig_size) * 100 if orig_size > 0 else 0
+                
+                success_count += 1
+                logger.debug(
+                    f"[{i}/{len(source_files)}] Converted: {img_path.name} -> {webp_path.name} "
+                    f"({savings_pct:.1f}% smaller, {orig_size/1024:.1f}KB → {webp_size/1024:.1f}KB)"
+                )
+            else:
+                logger.error(f"Error converting {img_path.name}: {error}")
+
+    # Report overall compression ratio
+    if total_orig_size > 0:
+        overall_savings = (1 - total_webp_size / total_orig_size) * 100
+        logger.info(f"Successfully converted {success_count}/{len(source_files)} images.")
+        logger.info(f"Overall image size reduction: {overall_savings:.1f}% " +
+                   f"({total_orig_size / (1024*1024):.2f}MB → {total_webp_size / (1024*1024):.2f}MB)")
+    
     return output_dir
 
 
-# Worker function for packaging CBZ files
 def cbz_packaging_worker(packaging_queue, logger, keep_originals):
-    """Worker function to package WebP images into CBZ files."""
+    """Worker function to package WebP images into CBZ files with optimized compression."""
     while True:
         item = packaging_queue.get()
-        if item is None:  # Sentinel to stop the worker
+        if item is None:  # sentinel
             packaging_queue.task_done()
             break
-        
-        file_output_dir, cbz_output, input_file, result_dict = item
+
+        # Check if we have the compression level parameter
+        if len(item) >= 5:
+            file_output_dir, cbz_output, input_file, result_dict, zip_compresslevel = item
+        else:
+            # Backward compatibility
+            file_output_dir, cbz_output, input_file, result_dict = item
+            zip_compresslevel = 9  # Default to maximum compression
         
         try:
-            # Create the CBZ file
-            create_cbz(file_output_dir, cbz_output, logger)
-            
-            # Get new file size
+            create_cbz(file_output_dir, cbz_output, logger, zip_compresslevel)
             _, new_size_bytes = get_file_size_formatted(cbz_output)
-            
-            # Store result for reporting
             result_dict["success"] = True
             result_dict["new_size"] = new_size_bytes
-            
-            # Delete the extracted files if --keep-originals is not specified
+
             if not keep_originals:
                 shutil.rmtree(file_output_dir)
                 logger.debug(f"Removed extracted files from {file_output_dir}")
-                
+
             logger.info(f"Packaged {input_file.name} successfully")
         except Exception as e:
             logger.error(f"Error packaging {input_file.name}: {e}")
             result_dict["success"] = False
-            
+
         packaging_queue.task_done()
 
 
-def process_single_file(input_file, output_dir, quality, max_width, max_height, no_cbz, keep_originals, num_threads, logger, packaging_queue=None):
-    """Process a single CBZ/CBR file."""
-    # Create a file-specific output directory
+def process_single_file(
+    input_file,
+    output_dir,
+    quality,
+    max_width,
+    max_height,
+    no_cbz,
+    keep_originals,
+    num_threads,
+    logger,
+    packaging_queue=None,
+    method=6,             # Use higher compression method by default
+    sharp_yuv=True,       # Better text rendering by default
+    preprocessing=None,   # Optional preprocessing
+    zip_compresslevel=9   # Maximum ZIP compression by default
+):
+    """Process a single CBZ/CBR file with optimized parameters."""
+    from .utils import get_file_size_formatted
+
     file_output_dir = output_dir / input_file.stem
-    
-    # Get original file size
-    original_size_formatted, original_size_bytes = get_file_size_formatted(input_file)
-    
-    # Create temporary directory for extraction
+    orig_size_str, orig_size_bytes = get_file_size_formatted(input_file)
+
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
-        
         try:
-            # Extract archive
             extract_archive(input_file, temp_path, logger)
-            
-            # Convert images to WebP
-            convert_to_webp(temp_path, file_output_dir, quality, max_width, max_height, num_threads, logger)
-            
-            # Create CBZ unless --no-cbz is specified
+            convert_to_webp(
+                temp_path, 
+                file_output_dir, 
+                quality, 
+                max_width, 
+                max_height, 
+                num_threads, 
+                method,
+                sharp_yuv,
+                preprocessing,
+                logger
+            )
+
             if not no_cbz:
                 cbz_output = output_dir / f"{input_file.stem}.cbz"
-                
-                # If we're using the pipeline approach with a packaging queue
+                # If using pipelined approach
                 if packaging_queue is not None:
-                    # Create a shared dict to store results
                     result_dict = {"success": False, "new_size": 0}
-                    
-                    # Add packaging task to the queue and return immediately
-                    packaging_queue.put((file_output_dir, cbz_output, input_file, result_dict))
-                    
+                    # Include the compression level in the queue item
+                    packaging_queue.put((file_output_dir, cbz_output, input_file, result_dict, zip_compresslevel))
                     logger.info(f"Queued {input_file.name} for packaging")
-                    return True, original_size_bytes, result_dict
+                    return True, orig_size_bytes, result_dict
                 else:
-                    # Traditional synchronous approach
-                    create_cbz(file_output_dir, cbz_output, logger)
-                    
-                    # Get new file size and calculate savings
-                    new_size_formatted, new_size_bytes = get_file_size_formatted(cbz_output)
-                    size_diff_bytes = original_size_bytes - new_size_bytes
-                    
-                    if original_size_bytes > 0:
-                        percentage_saved = (size_diff_bytes / original_size_bytes) * 100
-                        size_diff_formatted, _ = get_file_size_formatted(size_diff_bytes)
-                        
-                        # Print compression report
+                    # Synchronous approach - use the compression level
+                    create_cbz(file_output_dir, cbz_output, logger, zip_compresslevel)
+                    new_size_str, new_size_bytes = get_file_size_formatted(cbz_output)
+                    size_diff_bytes = orig_size_bytes - new_size_bytes
+
+                    if orig_size_bytes > 0:
+                        pct_saved = (size_diff_bytes / orig_size_bytes) * 100
+                        diff_str, _ = get_file_size_formatted(abs(size_diff_bytes))
                         logger.info(f"Compression Report for {input_file.name}:")
-                        logger.info(f"  Original size: {original_size_formatted}")
-                        logger.info(f"  New size: {new_size_formatted}")
-                        
+                        logger.info(f"  Original size: {orig_size_str}")
+                        logger.info(f"  New size: {new_size_str}")
+
                         if size_diff_bytes > 0:
-                            logger.info(f"  Space saved: {size_diff_formatted} ({percentage_saved:.1f}%)")
+                            logger.info(f"  Space saved: {diff_str} ({pct_saved:.1f}%)")
                         else:
-                            logger.info(f"  Space increased: {abs(size_diff_formatted)} " +
-                                      f"({abs(percentage_saved):.1f}% larger)")
-                    
-                    # Delete the extracted files if --keep-originals is not specified
+                            logger.info(f"  Space increased: {diff_str} ({abs(pct_saved):.1f}% larger)")
+
                     if not keep_originals:
                         shutil.rmtree(file_output_dir)
                         logger.debug(f"Removed extracted files from {file_output_dir}")
-            
+
             logger.info(f"Conversion of {input_file.name} completed successfully!")
-            return True, original_size_bytes, new_size_bytes if not no_cbz else 0
-            
+            return True, orig_size_bytes, 0 if no_cbz else new_size_bytes
+
         except Exception as e:
             logger.error(f"Error processing {input_file}: {e}")
-            return False, original_size_bytes, 0
+            return False, orig_size_bytes, 0
 
 
 def process_archive_files(archives, output_dir, args, logger):
-    """Process multiple archive files with pipelining for improved performance."""
+    """Process multiple archives with pipelining for improved performance."""
     total_original_size = 0
     total_new_size = 0
     processed_files = []
+
+    # Extract optimization parameters from args
+    method = getattr(args, 'method', 4)
+    sharp_yuv = getattr(args, 'sharp_yuv', False)
+    preprocessing = getattr(args, 'preprocessing', None)
+    zip_compression = getattr(args, 'zip_compression', 6)
     
+    # Report which parameters we're using
+    logger.info(f"Processing with parameters: method={method}, sharp_yuv={sharp_yuv}, "
+               f"preprocessing={preprocessing}, zip_compression={zip_compression}")
+
     if not args.no_cbz and len(archives) > 1:
-        # Pipeline approach with separate packaging thread
-        logger.info(f"Processing {len(archives)} comics with optimized pipelining...")
-        
-        # Reserve 1 thread for packaging, use the rest for conversion
-        conversion_threads = max(1, args.threads - 1) if args.threads > 0 else multiprocessing.cpu_count() - 1
-        
-        # Set up a queue for packaging tasks
+        logger.info(f"Processing {len(archives)} comics with pipelined approach...")
+        # Reserve 1 thread for packaging, the rest for conversion
+        conversion_threads = max(1, args.threads - 1) if args.threads > 0 else max(1, multiprocessing.cpu_count() - 1)
         packaging_queue = queue.Queue()
-        
-        # Start the packaging worker thread
         packaging_thread = threading.Thread(
             target=cbz_packaging_worker,
-            args=(packaging_queue, logger, args.keep_originals)
+            args=(packaging_queue, logger, args.keep_originals),
         )
         packaging_thread.start()
-        
-        # Process archives with pipelining
+
         success_count = 0
-        result_dicts = []  # Store result dictionaries for later reporting
-        
+        result_dicts = []
+
         for i, archive in enumerate(archives, 1):
             logger.info(f"\n[{i}/{len(archives)}] Processing: {archive}")
-            
-            success, original_size, result = process_single_file(
-                archive, 
-                output_dir,
-                args.quality, 
-                args.max_width, 
-                args.max_height,
-                args.no_cbz, 
-                args.keep_originals,
-                conversion_threads,  # Use fewer threads for conversion
-                logger,
-                packaging_queue  # Pass the queue for async packaging
+            success, orig_size, result_dict = process_single_file(
+                input_file=archive,
+                output_dir=output_dir,
+                quality=args.quality,
+                max_width=args.max_width,
+                max_height=args.max_height,
+                no_cbz=args.no_cbz,
+                keep_originals=args.keep_originals,
+                num_threads=conversion_threads,
+                logger=logger,
+                packaging_queue=packaging_queue,
+                method=method,
+                sharp_yuv=sharp_yuv,
+                preprocessing=preprocessing,
+                zip_compresslevel=zip_compression
             )
-            
             if success:
                 success_count += 1
-                total_original_size += original_size
-                result_dicts.append((archive.name, original_size, result))
-        
-        # Send sentinel to stop the packaging worker
+                total_original_size += orig_size
+                result_dicts.append((archive.name, orig_size, result_dict))
+
+        # Send sentinel to stop packager
         packaging_queue.put(None)
-        
-        # Wait for all packaging tasks to complete
         packaging_queue.join()
         packaging_thread.join()
-        
-        # Process results for reporting
-        for filename, original_size, result_dict in result_dicts:
-            if result_dict["success"]:
-                new_size = result_dict["new_size"]
-                total_new_size += new_size
-                processed_files.append((filename, original_size, new_size))
+
+        # Gather results
+        for filename, orig_size, rd in result_dicts:
+            if rd["success"]:
+                new_sz = rd["new_size"]
+                total_new_size += new_sz
+                processed_files.append((filename, orig_size, new_sz))
+
     else:
-        # Traditional sequential approach for single file or --no-cbz case
         success_count = 0
         for i, archive in enumerate(archives, 1):
             logger.info(f"\n[{i}/{len(archives)}] Processing: {archive}")
-            success, original_size, new_size = process_single_file(
-                archive, 
-                output_dir,
-                args.quality, 
-                args.max_width, 
-                args.max_height,
-                args.no_cbz, 
-                args.keep_originals,
-                args.threads,
-                logger
+            success, orig_size, new_sz = process_single_file(
+                input_file=archive,
+                output_dir=output_dir,
+                quality=args.quality,
+                max_width=args.max_width,
+                max_height=args.max_height,
+                no_cbz=args.no_cbz,
+                keep_originals=args.keep_originals,
+                num_threads=args.threads,
+                logger=logger,
+                method=method,
+                sharp_yuv=sharp_yuv,
+                preprocessing=preprocessing,
+                zip_compresslevel=zip_compression
             )
             if success:
                 success_count += 1
-                total_original_size += original_size
-                total_new_size += new_size
-                processed_files.append((archive.name, original_size, new_size))
-    
+                total_original_size += orig_size
+                total_new_size += new_sz
+                processed_files.append((archive.name, orig_size, new_sz))
+
     return success_count, total_original_size, total_new_size, processed_files
