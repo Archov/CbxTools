@@ -2,10 +2,10 @@ README.md
 setup.py
 cbxtools/__init__.py
 cbxtools/__main__.py
-cbxtools/archive-utils.py
+cbxtools/archives.py
 cbxtools/cli.py
 cbxtools/conversion.py
-cbxtools/stats.py
+cbxtools/stats_tracker.py
 cbxtools/utils.py
 cbxtools.egg-info/PKG-INFO
 cbxtools.egg-info/SOURCES.txt
