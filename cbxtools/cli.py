@@ -232,7 +232,7 @@ def main():
                 except Exception as e:
                     logger.error(f"Error clearing history file: {e}")
         
-        return watch_directory(input_path, output_dir, args, logger)
+        return watch_directory(input_path, output_dir, args, logger, stats_tracker)
 
     # If not watch mode, process single file or directory
     start_time = time.time()
