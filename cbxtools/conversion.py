@@ -20,14 +20,29 @@ from .archives import extract_archive, create_cbz
 
 def convert_single_image(args):
     """Convert a single image to WebP format with optimized parameters. Runs in a separate process."""
-    img_path, webp_path, quality, max_width, max_height, method, sharp_yuv, preprocessing = args
+    img_path, webp_path, options = args
+    
+    # Unpack options
+    quality = options.get('quality', 80)
+    max_width = options.get('max_width', 0)
+    max_height = options.get('max_height', 0)
+    method = options.get('method', 4)
+    sharp_yuv = options.get('sharp_yuv', False)
+    preprocessing = options.get('preprocessing')
+    lossless = options.get('lossless', False)
+    auto_optimize = options.get('auto_optimize', False)
+    
     try:
         webp_path.parent.mkdir(parents=True, exist_ok=True)
         with Image.open(img_path) as img:
+            # Check if image needs to be converted from CMYK or other modes
+            if img.mode not in ('RGB', 'RGBA', 'L', 'LA'):
+                img = img.convert('RGB')
+                
+            # Resize if needed
             width, height = img.size
             scale_factor = 1.0
 
-            # Enforce max width/height if requested
             if max_width > 0 and width > max_width:
                 scale_factor = min(scale_factor, max_width / width)
             if max_height > 0 and height > max_height:
@@ -40,26 +55,70 @@ def convert_single_image(args):
             
             # Apply preprocessing if requested
             if preprocessing == 'unsharp_mask':
-                from PIL import ImageFilter
-                img = img.filter(ImageFilter.UnsharpMask(radius=1.5, percent=50, threshold=3))
+                try:
+                    from PIL import ImageFilter
+                    img = img.filter(ImageFilter.UnsharpMask(radius=1.5, percent=50, threshold=3))
+                except (ImportError, AttributeError):
+                    pass  # Skip if not available
             elif preprocessing == 'reduce_noise':
-                from PIL import ImageFilter
-                blurred = img.filter(ImageFilter.GaussianBlur(radius=0.5))
-                img = Image.blend(img, blurred, 0.1).filter(ImageFilter.SHARPEN)
+                try:
+                    from PIL import ImageFilter
+                    # Apply slight blur to reduce noise, then sharpen for detail
+                    blurred = img.filter(ImageFilter.GaussianBlur(radius=0.5))
+                    img = Image.blend(img, blurred, 0.1).filter(ImageFilter.SHARPEN)
+                except (ImportError, AttributeError):
+                    pass  # Skip if not available
 
-            # Advanced WebP parameters for optimal compression
+            # Advanced WebP parameters
             webp_options = {
                 'quality': quality,
-                'method': method,        # Compression method (0-6), higher is better but slower
-                'lossless': False,       # Use lossy compression for smaller files
+                'method': method,
+                'lossless': lossless,
             }
             
             # Add sharp_yuv option for better text rendering if specified
             if sharp_yuv:
                 webp_options['sharp_yuv'] = True
             
-            # Save as WebP with optimized parameters
-            img.save(webp_path, 'WEBP', **webp_options)
+            # Auto-optimize: try both lossy and lossless, use smaller file
+            if auto_optimize and not lossless:
+                import tempfile
+                temp_dir = tempfile.gettempdir()
+                lossy_path = Path(temp_dir) / f"lossy_{webp_path.name}"
+                lossless_path = Path(temp_dir) / f"lossless_{webp_path.name}"
+                
+                # Save lossy version
+                lossy_options = webp_options.copy()
+                lossy_options['lossless'] = False
+                img.save(lossy_path, 'WEBP', **lossy_options)
+                
+                # Save lossless version
+                lossless_options = webp_options.copy()
+                lossless_options['lossless'] = True
+                if 'quality' in lossless_options:
+                    del lossless_options['quality']  # Lossless doesn't use quality
+                img.save(lossless_path, 'WEBP', **lossless_options)
+                
+                # Compare sizes and use the smaller one
+                lossy_size = lossy_path.stat().st_size
+                lossless_size = lossless_path.stat().st_size
+                
+                if lossy_size <= lossless_size:
+                    # Lossy is smaller or equal, use it
+                    shutil.copy2(lossy_path, webp_path)
+                else:
+                    # Lossless is smaller, use it
+                    shutil.copy2(lossless_path, webp_path)
+                
+                # Clean up temp files
+                try:
+                    lossy_path.unlink()
+                    lossless_path.unlink()
+                except Exception:
+                    pass  # Ignore cleanup errors
+            else:
+                # Standard saving with specified options
+                img.save(webp_path, 'WEBP', **webp_options)
 
         return (img_path, webp_path, True, None)
     except Exception as e:
@@ -67,7 +126,8 @@ def convert_single_image(args):
 
 
 def convert_to_webp(extract_dir, output_dir, quality, max_width=0, max_height=0, 
-               num_threads=0, method=4, sharp_yuv=False, preprocessing=None, logger=None):
+               num_threads=0, method=4, sharp_yuv=False, preprocessing=None, 
+               lossless=False, auto_optimize=False, logger=None):
     """Convert all images in extract_dir to WebP format, saving to output_dir with optimized parameters."""
     image_exts = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'}
     source_files = []
@@ -84,36 +144,56 @@ def convert_to_webp(extract_dir, output_dir, quality, max_width=0, max_height=0,
         num_threads = multiprocessing.cpu_count()
 
     logger.info(f"Converting {len(source_files)} images to WebP using {num_threads} threads...")
-    logger.info(f"WebP parameters: quality={quality}, method={method}, sharp_yuv={sharp_yuv}, preprocessing={preprocessing}")
+    logger.info(f"WebP parameters: quality={quality}, method={method}, sharp_yuv={sharp_yuv}, "
+               f"preprocessing={preprocessing}, lossless={lossless}, auto_optimize={auto_optimize}")
 
+    # Package options for each image
     conversion_args = []
     for img_path in source_files:
         rel_path = img_path.relative_to(extract_dir)
         webp_path = output_dir / rel_path.with_suffix('.webp')
-        conversion_args.append((img_path, webp_path, quality, max_width, max_height, method, sharp_yuv, preprocessing))
+        
+        # Create options dictionary for this image
+        options = {
+            'quality': quality,
+            'max_width': max_width,
+            'max_height': max_height,
+            'method': method,
+            'sharp_yuv': sharp_yuv,
+            'preprocessing': preprocessing,
+            'lossless': lossless,
+            'auto_optimize': auto_optimize
+        }
+        
+        conversion_args.append((img_path, webp_path, options))
 
     success_count = 0
     total_orig_size = 0
     total_webp_size = 0
     
     with ProcessPoolExecutor(max_workers=num_threads) as executor:
-        futures = [executor.submit(convert_single_image, x) for x in conversion_args]
+        futures = [executor.submit(convert_single_image, args) for args in conversion_args]
         for i, fut in enumerate(as_completed(futures), 1):
             img_path, webp_path, success, error = fut.result()
             if success:
                 # Calculate compression ratio for reporting
-                orig_size = img_path.stat().st_size
-                webp_size = webp_path.stat().st_size
-                total_orig_size += orig_size
-                total_webp_size += webp_size
-                
-                savings_pct = (1 - webp_size / orig_size) * 100 if orig_size > 0 else 0
-                
-                success_count += 1
-                logger.debug(
-                    f"[{i}/{len(source_files)}] Converted: {img_path.name} -> {webp_path.name} "
-                    f"({savings_pct:.1f}% smaller, {orig_size/1024:.1f}KB → {webp_size/1024:.1f}KB)"
-                )
+                try:
+                    orig_size = img_path.stat().st_size
+                    webp_size = webp_path.stat().st_size
+                    total_orig_size += orig_size
+                    total_webp_size += webp_size
+                    
+                    savings_pct = (1 - webp_size / orig_size) * 100 if orig_size > 0 else 0
+                    
+                    success_count += 1
+                    logger.debug(
+                        f"[{i}/{len(source_files)}] Converted: {img_path.name} -> {webp_path.name} "
+                        f"({savings_pct:.1f}% smaller, {orig_size/1024:.1f}KB → {webp_size/1024:.1f}KB)"
+                    )
+                except Exception as e:
+                    logger.debug(f"[{i}/{len(source_files)}] Converted: {img_path.name} -> {webp_path.name}")
+                    logger.debug(f"Error calculating file size: {e}")
+                    success_count += 1
             else:
                 logger.error(f"Error converting {img_path.name}: {error}")
 
@@ -172,12 +252,14 @@ def process_single_file(
     num_threads,
     logger,
     packaging_queue=None,
-    method=6,             # Use higher compression method by default
-    sharp_yuv=True,       # Better text rendering by default
-    preprocessing=None,   # Optional preprocessing
-    zip_compresslevel=9   # Maximum ZIP compression by default
+    method=6,              # Use higher compression method by default
+    sharp_yuv=True,        # Better text rendering by default
+    preprocessing=None,    # Optional preprocessing
+    zip_compresslevel=9,   # Maximum ZIP compression by default
+    lossless=False,        # Use lossy by default
+    auto_optimize=False    # Don't auto-optimize by default
 ):
-    """Process a single CBZ/CBR file with optimized parameters."""
+    """Process a single CBZ/CBR file with optimized parameters from presets."""
     from .utils import get_file_size_formatted
 
     file_output_dir = output_dir / input_file.stem
@@ -197,6 +279,8 @@ def process_single_file(
                 method,
                 sharp_yuv,
                 preprocessing,
+                lossless,
+                auto_optimize,
                 logger
             )
 
@@ -245,15 +329,18 @@ def process_archive_files(archives, output_dir, args, logger):
     total_new_size = 0
     processed_files = []
 
-    # Extract optimization parameters from args
-    method = getattr(args, 'method', 4)
-    sharp_yuv = getattr(args, 'sharp_yuv', False)
-    preprocessing = getattr(args, 'preprocessing', None)
-    zip_compression = getattr(args, 'zip_compression', 6)
+    # Extract all parameters from args
+    method = args.method
+    sharp_yuv = args.sharp_yuv
+    preprocessing = args.preprocessing
+    zip_compression = args.zip_compression
+    lossless = args.lossless
+    auto_optimize = args.auto_optimize
     
     # Report which parameters we're using
     logger.info(f"Processing with parameters: method={method}, sharp_yuv={sharp_yuv}, "
-               f"preprocessing={preprocessing}, zip_compression={zip_compression}")
+               f"preprocessing={preprocessing}, zip_compression={zip_compression}, "
+               f"lossless={lossless}, auto_optimize={auto_optimize}")
 
     if not args.no_cbz and len(archives) > 1:
         logger.info(f"Processing {len(archives)} comics with pipelined approach...")
@@ -263,6 +350,7 @@ def process_archive_files(archives, output_dir, args, logger):
         packaging_thread = threading.Thread(
             target=cbz_packaging_worker,
             args=(packaging_queue, logger, args.keep_originals),
+            daemon=True
         )
         packaging_thread.start()
 
@@ -285,7 +373,9 @@ def process_archive_files(archives, output_dir, args, logger):
                 method=method,
                 sharp_yuv=sharp_yuv,
                 preprocessing=preprocessing,
-                zip_compresslevel=zip_compression
+                zip_compresslevel=zip_compression,
+                lossless=lossless,
+                auto_optimize=auto_optimize
             )
             if success:
                 success_count += 1
@@ -321,7 +411,9 @@ def process_archive_files(archives, output_dir, args, logger):
                 method=method,
                 sharp_yuv=sharp_yuv,
                 preprocessing=preprocessing,
-                zip_compresslevel=zip_compression
+                zip_compresslevel=zip_compression,
+                lossless=lossless,
+                auto_optimize=auto_optimize
             )
             if success:
                 success_count += 1

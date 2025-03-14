@@ -15,14 +15,12 @@ from pathlib import Path
 
 from .archives import find_comic_archives
 from .conversion import process_single_file, cbz_packaging_worker
-from .utils import get_preset_parameters
 
 
 def watch_directory(input_dir, output_dir, args, logger):
     """
     Watch a directory for new CBZ/CBR files and process them with optimized parameters.
     """
-
     
     history_file = output_dir / '.cbz_webp_processed_files.json'
     logger.info(f"Watching directory: {input_dir}")
@@ -30,35 +28,12 @@ def watch_directory(input_dir, output_dir, args, logger):
     logger.info(f"Checking every {args.watch_interval} seconds")
     logger.info(f"Using history file: {history_file}")
     
-    # Get preset parameters
-    preset = getattr(args, 'preset', 'default')
-    preset_params = get_preset_parameters(preset)
-    
-    # Extract optimization parameters, with overrides from command line
-    method = getattr(args, 'method', 4)
-    if method == 4:  # If using default, use preset value
-        method = preset_params['method']
-    
-    sharp_yuv = getattr(args, 'sharp_yuv', False) or preset_params['sharp_yuv']
-    
-    preprocessing = getattr(args, 'preprocessing', 'none')
-    if preprocessing == 'none':
-        preprocessing = preset_params['preprocessing']
-    
-    zip_compression = getattr(args, 'zip_compression', 6)
-    if zip_compression == 6:
-        zip_compression = preset_params['zip_compression']
-    
-    # Check for explicitly set quality using sys.argv
-    quality = args.quality
-    # Only apply quality adjustment if quality wasn't explicitly set
-    if '--quality' not in ' '.join(sys.argv):
-        quality_adjustment = preset_params.get('quality_adjustment', 0)
-        quality += quality_adjustment
-        quality = max(1, min(100, quality))  # Ensure quality is between 1-100
-    
-    logger.info(f"Using optimization parameters: method={method}, sharp_yuv={sharp_yuv}, "
-               f"preprocessing={preprocessing}, zip_compression={zip_compression}, quality={quality}")
+    # Log the effective parameters being used
+    logger.info(f"Using parameters: quality={args.quality}, max_width={args.max_width}, "
+               f"max_height={args.max_height}, method={args.method}, "
+               f"sharp_yuv={args.sharp_yuv}, preprocessing={args.preprocessing}, "
+               f"zip_compression={args.zip_compression}, lossless={args.lossless}, "
+               f"auto_optimize={args.auto_optimize}")
     logger.info("Press Ctrl+C to stop watching")
 
     processed_files = set()
@@ -129,10 +104,12 @@ def watch_directory(input_dir, output_dir, args, logger):
                         num_threads=conversion_threads,
                         logger=logger,
                         packaging_queue=packaging_queue,
-                        method=method,
-                        sharp_yuv=sharp_yuv,
-                        preprocessing=preprocessing,
-                        zip_compresslevel=zip_compression
+                        method=args.method,
+                        sharp_yuv=args.sharp_yuv,
+                        preprocessing=args.preprocessing,
+                        zip_compresslevel=args.zip_compression,
+                        lossless=args.lossless,
+                        auto_optimize=args.auto_optimize
                     )
 
                     if success:
