@@ -43,11 +43,131 @@ def parse_arguments():
                         help='Do not update or display lifetime statistics')
     parser.add_argument('--stats-only', action='store_true',
                         help='Display lifetime statistics and exit')
+    parser.add_argument('--watch', action='store_true',
+                        help='Watch input directory for new files and process them automatically')
+    parser.add_argument('--watch-interval', type=int, default=5,
+                        help='Interval in seconds to check for new files in watch mode (default: 5)')
+    parser.add_argument('--delete-originals', action='store_true',
+                        help='Delete original files after successful conversion in watch mode')
+    parser.add_argument('--clear-history', action='store_true',
+                        help='Clear the history of processed files before starting watch mode')
     return parser.parse_args()
+
+def watch_directory(input_dir, output_dir, args, logger):
+    """
+    Watch a directory for new CBZ/CBR files and process them as they appear.
+    Maintains a persistent record of processed files across script executions.
+    
+    Args:
+        input_dir: Path to the directory to watch
+        output_dir: Path to the output directory
+        args: Command line arguments
+        logger: Logger instance
+    """
+    import time
+    
+    # Define path for the history file
+    history_file = Path(output_dir) / '.cbz_webp_processed_files.json'
+    
+    logger.info(f"Watching directory: {input_dir}")
+    logger.info(f"Output directory: {output_dir}")
+    logger.info(f"Checking every {args.watch_interval} seconds")
+    logger.info(f"Using history file: {history_file}")
+    logger.info("Press Ctrl+C to stop watching")
+    
+    # Initialize the processed files set from history file
+    processed_files = set()
+    
+    # Load history file if it exists
+    if history_file.exists():
+        try:
+            with open(history_file, 'r') as f:
+                history_data = json.load(f)
+                processed_paths = history_data.get('processed_files', [])
+                # Convert string paths to Path objects
+                processed_files = set(Path(p) for p in processed_paths)
+                logger.info(f"Loaded {len(processed_files)} previously processed files from history")
+        except Exception as e:
+            logger.error(f"Error loading history file: {e}")
+            logger.info("Starting with empty history")
+    
+    def save_history():
+        """Save the processed files to the history file."""
+        try:
+            # Convert Path objects to strings for JSON serialization
+            history_data = {
+                'processed_files': [str(p) for p in processed_files],
+                'last_updated': datetime.datetime.now().isoformat()
+            }
+            
+            with open(history_file, 'w') as f:
+                json.dump(history_data, f, indent=2)
+                
+            logger.debug(f"Saved {len(processed_files)} processed files to history")
+        except Exception as e:
+            logger.error(f"Error saving history file: {e}")
+    
+    try:
+        while True:
+            # Find all comic archives in the directory
+            archives = find_comic_archives(input_dir, recursive=False)
+            
+            # Filter out already processed files
+            new_archives = [a for a in archives if a not in processed_files]
+            
+            if new_archives:
+                logger.info(f"Found {len(new_archives)} new file(s) to process")
+                
+                # Process each new file
+                for archive in new_archives:
+                    logger.info(f"Processing: {archive}")
+                    
+                    # Process the file
+                    success, original_size, new_size = process_single_file(
+                        archive, 
+                        output_dir,
+                        args.quality, 
+                        args.max_width, 
+                        args.max_height,
+                        args.no_cbz, 
+                        args.keep_originals,
+                        args.threads,
+                        logger
+                    )
+                    
+                    if success:
+                        # Mark file as processed
+                        processed_files.add(archive)
+                        # Save history after each successful processing
+                        save_history()
+                        
+                        # Delete the original file if processing was successful and deletion is enabled
+                        if args.delete_originals:
+                            try:
+                                archive.unlink()
+                                logger.info(f"Deleted original file: {archive}")
+                            except Exception as e:
+                                logger.error(f"Error deleting file {archive}: {e}")
+                    else:
+                        logger.error(f"Failed to process {archive}")
+            
+            # Wait before checking again
+            time.sleep(args.watch_interval)
+            
+    except KeyboardInterrupt:
+        logger.info("\nWatchdog mode stopped by user")
+        # Save history on clean exit
+        save_history()
+    except Exception as e:
+        logger.error(f"Error in watchdog mode: {e}")
+        # Still try to save history on error
+        save_history()
+        return 1
+    
+    return 0
 
 
 def main():
-    """Main entry point for the command-line interface."""
     args = parse_arguments()
     
     # Set up logging
@@ -63,12 +183,7 @@ def main():
         else:
             logger.error("Cannot show stats when --no-stats is specified")
         return 0
-    
-    # Check if args is missing either positional argument when not in stats-only mode
-    if args.stats_only == False and (not hasattr(args, 'input_path') or not hasattr(args, 'output_dir')):
-        logger.error("Both input_path and output_dir are required when not in stats-only mode")
-        return 1
-    
+
     input_path = Path(args.input_path).resolve()
     output_dir = Path(args.output_dir).resolve()
     
@@ -78,6 +193,24 @@ def main():
     
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Check if we need to clear history
+    if args.clear_history:
+        history_file = Path(output_dir) / '.cbz_webp_processed_files.json'
+        if history_file.exists():
+            try:
+                history_file.unlink()
+                logger.info(f"Cleared history file: {history_file}")
+            except Exception as e:
+                logger.error(f"Error clearing history file: {e}")
+    
+    # Check if watch mode is enabled
+    if args.watch:
+        if not input_path.is_dir():
+            logger.error("Watch mode requires an input directory")
+            return 1
+        
+        return watch_directory(input_path, output_dir, args, logger)
     
     start_time = time.time()
     total_files_processed = 0
