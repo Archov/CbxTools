@@ -128,28 +128,52 @@ def convert_single_image(args):
 def convert_to_webp(extract_dir, output_dir, quality, max_width=0, max_height=0, 
                num_threads=0, method=4, sharp_yuv=False, preprocessing=None, 
                lossless=False, auto_optimize=False, logger=None):
-    """Convert all images in extract_dir to WebP format, saving to output_dir with optimized parameters."""
+    """Convert all images in extract_dir to WebP format and copy all non-image files to output_dir."""
+    import os
+    import shutil
+    from pathlib import Path
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    
     image_exts = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'}
-    source_files = []
+    image_files = []
+    non_image_files = []
 
     for root, _, files in os.walk(extract_dir):
         for file in files:
+            file_path = Path(root) / file
             if Path(file).suffix.lower() in image_exts:
-                source_files.append(Path(root) / file)
+                image_files.append(file_path)
+            else:
+                non_image_files.append(file_path)
 
-    source_files.sort()
+    image_files.sort()
+    non_image_files.sort()
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Process non-image files first - simply copy them to output directory
+    copied_count = 0
+    for file_path in non_image_files:
+        rel_path = file_path.relative_to(extract_dir)
+        output_path = output_dir / rel_path
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(file_path, output_path)
+        copied_count += 1
+
+    if copied_count > 0:
+        logger.info(f"Copied {copied_count} non-image files to preserve metadata and auxiliary content")
+
+    # Continue with image conversion as before
     if num_threads <= 0:
         num_threads = multiprocessing.cpu_count()
 
-    logger.info(f"Converting {len(source_files)} images to WebP using {num_threads} threads...")
+    logger.info(f"Converting {len(image_files)} images to WebP using {num_threads} threads...")
     logger.info(f"WebP parameters: quality={quality}, method={method}, sharp_yuv={sharp_yuv}, "
                f"preprocessing={preprocessing}, lossless={lossless}, auto_optimize={auto_optimize}")
 
     # Package options for each image
     conversion_args = []
-    for img_path in source_files:
+    for img_path in image_files:
         rel_path = img_path.relative_to(extract_dir)
         webp_path = output_dir / rel_path.with_suffix('.webp')
         
@@ -167,6 +191,7 @@ def convert_to_webp(extract_dir, output_dir, quality, max_width=0, max_height=0,
         
         conversion_args.append((img_path, webp_path, options))
 
+    # Rest of the function remains the same
     success_count = 0
     total_orig_size = 0
     total_webp_size = 0
@@ -187,11 +212,11 @@ def convert_to_webp(extract_dir, output_dir, quality, max_width=0, max_height=0,
                     
                     success_count += 1
                     logger.debug(
-                        f"[{i}/{len(source_files)}] Converted: {img_path.name} -> {webp_path.name} "
+                        f"[{i}/{len(image_files)}] Converted: {img_path.name} -> {webp_path.name} "
                         f"({savings_pct:.1f}% smaller, {orig_size/1024:.1f}KB → {webp_size/1024:.1f}KB)"
                     )
                 except Exception as e:
-                    logger.debug(f"[{i}/{len(source_files)}] Converted: {img_path.name} -> {webp_path.name}")
+                    logger.debug(f"[{i}/{len(image_files)}] Converted: {img_path.name} -> {webp_path.name}")
                     logger.debug(f"Error calculating file size: {e}")
                     success_count += 1
             else:
@@ -200,7 +225,7 @@ def convert_to_webp(extract_dir, output_dir, quality, max_width=0, max_height=0,
     # Report overall compression ratio
     if total_orig_size > 0:
         overall_savings = (1 - total_webp_size / total_orig_size) * 100
-        logger.info(f"Successfully converted {success_count}/{len(source_files)} images.")
+        logger.info(f"Successfully converted {success_count}/{len(image_files)} images.")
         logger.info(f"Overall image size reduction: {overall_savings:.1f}% " +
                    f"({total_orig_size / (1024*1024):.2f}MB → {total_webp_size / (1024*1024):.2f}MB)")
     

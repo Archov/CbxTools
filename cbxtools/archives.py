@@ -26,8 +26,14 @@ def extract_archive(archive_path, extract_dir, logger):
 def create_cbz(source_dir, output_file, logger, compresslevel=9):
     """Create a new CBZ file from the contents of source_dir with optimized compression."""
     import os
+    import zipfile
     from pathlib import Path
+    
     logger.info(f"Creating CBZ file: {output_file} (compression level: {compresslevel})")
+
+    # Count file types for reporting
+    image_count = 0
+    other_count = 0
 
     # Collect all files and sort them for proper ordering
     all_files = []
@@ -35,6 +41,12 @@ def create_cbz(source_dir, output_file, logger, compresslevel=9):
         for file in files:
             file_path = Path(root) / file
             all_files.append((file_path, file_path.relative_to(source_dir)))
+            
+            # Count file types
+            if file_path.suffix.lower() == '.webp':
+                image_count += 1
+            else:
+                other_count += 1
     
     # Sort files - typically comic pages are numbered sequentially
     all_files.sort(key=lambda x: str(x[1]))
@@ -46,7 +58,11 @@ def create_cbz(source_dir, output_file, logger, compresslevel=9):
             zipf.write(file_path, rel_path)
             file_count += 1
 
-        logger.debug(f"Added {file_count} files to {output_file}")
+        if other_count > 0:
+            logger.debug(f"Added {file_count} files to {output_file} "
+                       f"({image_count} WebP images, {other_count} other files)")
+        else:
+            logger.debug(f"Added {file_count} WebP images to {output_file}")
 
 
 def find_comic_archives(directory, recursive=False):
