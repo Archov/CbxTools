@@ -13,35 +13,60 @@ from .archives import find_comic_archives
 from .conversion import process_single_file, process_archive_files
 from .stats_tracker import StatsTracker, print_summary_report, print_lifetime_stats
 from .watchers import watch_directory
-from .utils import get_preset_parameters
+from .presets import (list_available_presets, apply_preset_with_overrides, 
+                     export_preset_from_args, save_preset, import_presets_from_file)
 
 
 def parse_arguments():
-    """Parse command line arguments with optimization options."""
+    """Parse command line arguments with support for presets."""
     parser = argparse.ArgumentParser(description='Convert CBZ/CBR images to WebP format')
-    parser.add_argument('input_path', help='Path to CBZ/CBR file or directory containing multiple archives')
-    parser.add_argument('output_dir', help='Output directory for WebP images')
+    parser.add_argument('input_path', nargs='?', default=None,
+                        help='Path to CBZ/CBR file or directory containing multiple archives')
+    parser.add_argument('output_dir', nargs='?', default=None,
+                        help='Output directory for WebP images')
     
-    # Basic options
-    parser.add_argument('--quality', type=int, default=80, 
-                        help='WebP compression quality (0-100, default: 80)')
-    parser.add_argument('--max-width', type=int, default=0,
+    # Basic options - with None as default to detect if explicitly set
+    parser.add_argument('--quality', type=int, default=None, 
+                        help='WebP compression quality (0-100, default: 80 or from preset)')
+    parser.add_argument('--max-width', type=int, default=None,
                         help='Max width in pixels (0 = no restriction)')
-    parser.add_argument('--max-height', type=int, default=0,
+    parser.add_argument('--max-height', type=int, default=None,
                         help='Max height in pixels (0 = no restriction)')
     
     # Advanced compression options
     compression_group = parser.add_argument_group('Advanced Compression Options')
-    compression_group.add_argument('--method', type=int, choices=range(0, 7), default=4,
-                        help='WebP compression method (0-6): higher = better compression but slower (default: 4)')
-    compression_group.add_argument('--sharp-yuv', action='store_true',
+    compression_group.add_argument('--method', type=int, choices=range(0, 7), default=None,
+                        help='WebP compression method (0-6): higher = better compression but slower')
+    compression_group.add_argument('--sharp-yuv', action='store_true', default=None,
                         help='Use sharp YUV conversion for better text quality')
-    compression_group.add_argument('--preprocessing', choices=['none', 'unsharp_mask', 'reduce_noise'], default='none',
-                        help='Apply preprocessing to images before compression (default: none)')
-    compression_group.add_argument('--zip-compression', type=int, choices=range(0, 10), default=6,
-                        help='ZIP compression level for CBZ (0-9, default: 6)')
-    compression_group.add_argument('--preset', choices=['default', 'comic', 'photo', 'maximum'], default='default',
-                        help='Preset profiles: default, comic (optimized for comics), photo, maximum (default: default)')
+    compression_group.add_argument('--no-sharp-yuv', action='store_true',
+                        help='Disable sharp YUV conversion even if preset enables it')
+    compression_group.add_argument('--preprocessing', choices=['none', 'unsharp_mask', 'reduce_noise'], default=None,
+                        help='Apply preprocessing to images before compression')
+    compression_group.add_argument('--zip-compression', type=int, choices=range(0, 10), default=None,
+                        help='ZIP compression level for CBZ (0-9)')
+    compression_group.add_argument('--lossless', action='store_true', default=None,
+                        help='Use lossless WebP compression (larger but perfect quality)')
+    compression_group.add_argument('--no-lossless', action='store_true',
+                        help='Disable lossless compression even if preset enables it')
+    compression_group.add_argument('--auto-optimize', action='store_true', default=None,
+                        help='Try both lossy and lossless and use smaller file')
+    compression_group.add_argument('--no-auto-optimize', action='store_true',
+                        help='Disable auto-optimization even if preset enables it')
+    
+    # Preset options
+    preset_group = parser.add_argument_group('Preset Options')
+    available_presets = list_available_presets()
+    preset_group.add_argument('--preset', choices=available_presets, default='default',
+                        help=f'Use a preset profile (available: {", ".join(available_presets)})')
+    preset_group.add_argument('--save-preset', type=str, metavar='NAME',
+                        help='Save current settings as a new preset')
+    preset_group.add_argument('--import-preset', type=str, metavar='FILE',
+                        help='Import presets from a JSON file')
+    preset_group.add_argument('--list-presets', action='store_true',
+                        help='List all available presets and exit')
+    preset_group.add_argument('--overwrite-preset', action='store_true',
+                        help='Overwrite existing presets when saving or importing')
     
     # Output options
     parser.add_argument('--no-cbz', action='store_true',
@@ -75,46 +100,60 @@ def parse_arguments():
     parser.add_argument('--clear-history', action='store_true',
                         help='Clear watch history file before starting watch mode')
     
-    return parser.parse_args()
-    """Get optimized parameters based on preset name."""
-    presets = {
-        'default': {
-            'method': 4,
-            'sharp_yuv': False,
-            'preprocessing': None,
-            'zip_compression': 6,
-            'quality_adjustment': 0
-        },
-        'comic': {
-            'method': 6,                # Best compression method
-            'sharp_yuv': True,          # Better text rendering
-            'preprocessing': 'unsharp_mask', # Enhance line art
-            'zip_compression': 9,       # Maximum ZIP compression
-            'quality_adjustment': -5    # Slightly lower quality for better compression
-        },
-        'photo': {
-            'method': 4,
-            'sharp_yuv': False,         # Not needed for photos
-            'preprocessing': None,      # No preprocessing for photos
-            'zip_compression': 6,
-            'quality_adjustment': 5     # Higher quality for photos
-        },
-        'maximum': {
-            'method': 6,                # Best compression method
-            'sharp_yuv': True,          # Better text rendering
-            'preprocessing': None,      # No preprocessing
-            'zip_compression': 9,       # Maximum ZIP compression
-            'quality_adjustment': -10   # Lower quality for maximum compression
-        }
-    }
+    args = parser.parse_args()
     
-    return presets.get(preset, presets['default'])
+    # Validate required arguments based on actions
+    if not args.list_presets and args.input_path is None and not args.import_preset:
+        parser.error("input_path is required unless --list-presets or --import-preset is specified")
+    
+    if not args.list_presets and not args.stats_only and args.input_path is not None and args.output_dir is None and not args.import_preset:
+        parser.error("output_dir is required unless --list-presets, --stats-only, or --import-preset is specified")
+    
+    # Handle negation flags
+    if args.no_sharp_yuv:
+        args.sharp_yuv = False
+    if args.no_lossless:
+        args.lossless = False
+    if args.no_auto_optimize:
+        args.auto_optimize = False
+    
+    return args
 
 
 def main():
     args = parse_arguments()
     logger = setup_logging(args.verbose, args.silent)
 
+    # Handle preset listing
+    if args.list_presets:
+        presets = list_available_presets()
+        print("\nAvailable presets:")
+        for preset in presets:
+            print(f"  - {preset}")
+        return 0
+    
+    # Handle preset importing
+    if args.import_preset:
+        import_path = Path(args.import_preset).resolve()
+        if not import_path.exists():
+            logger.error(f"Import preset file not found: {import_path}")
+            return 1
+        
+        result = import_presets_from_file(
+            import_path, 
+            overwrite=args.overwrite_preset,
+            logger=logger
+        )
+        
+        if result > 0:
+            logger.info(f"Successfully imported {result} presets")
+            if args.input_path is None:  # If we're only importing, exit
+                return 0
+        else:
+            logger.error("Failed to import presets")
+            if args.input_path is None:  # If we're only importing, exit
+                return 1
+    
     # Initialize stats tracker if not disabled
     stats_tracker = StatsTracker(args.stats_file) if not args.no_stats else None
     
@@ -128,37 +167,53 @@ def main():
 
     # Resolve paths
     input_path = Path(args.input_path).resolve()
-    output_dir = Path(args.output_dir).resolve()
+    output_dir = Path(args.output_dir).resolve() if args.output_dir else None
 
     if not input_path.exists():
         logger.error(f"Input path not found: {input_path}")
         return 1
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if output_dir:
+        output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Get preset parameters
-    preset_params = get_preset_parameters(args.preset)
-    
-    # Apply preset parameters, but let explicit command-line arguments override them
-    method = args.method if args.method != 4 else preset_params['method']
-    sharp_yuv = args.sharp_yuv or preset_params['sharp_yuv']
-    preprocessing = args.preprocessing if args.preprocessing != 'none' else preset_params['preprocessing']
-    zip_compression = args.zip_compression if args.zip_compression != 6 else preset_params['zip_compression']
-    
-    # Apply quality adjustment from preset
-    # Check if the quality was explicitly set by the user
-    quality_explicitly_set = any(arg == '--quality' for arg in sys.argv)
-    quality = args.quality
+    # Get command-line overrides to apply on top of preset
+    overrides = {}
+    for param in [
+        'quality', 'max_width', 'max_height', 
+        'method','sharp_yuv','preprocessing',
+        'zip_compression','lossless','auto_optimize'
+    ]:
+        value = getattr(args, param)
+    # Only override if the user explicitly set it 
+        if value is not None:
+            overrides[param] = value
 
-    # Only apply preset quality adjustment if quality wasn't explicitly set
-    if not quality_explicitly_set and preset_params.get('quality_adjustment'):
-        quality += preset_params.get('quality_adjustment', 0)
-        quality = max(1, min(100, quality))
+    
+    # Apply preset with overrides
+    params = apply_preset_with_overrides(args.preset, overrides, logger)
+    
+    # Update args with the final parameters
+    for key, value in params.items():
+        setattr(args, key, value)
+    
+    # Save preset if requested
+    if args.save_preset:
+        try:
+            # Export current parameters to a preset
+            preset_params = export_preset_from_args(args)
+            # Add a description field
+            preset_params['description'] = f"Custom preset created on {time.strftime('%Y-%m-%d')}"
+            save_preset(args.save_preset, preset_params, args.overwrite_preset, logger)
+        except Exception as e:
+            logger.error(f"Error saving preset: {e}")
+            return 1
     
     # Log the effective parameters being used
-    logger.info(f"Using compression parameters: quality={quality}, method={method}, "
-               f"sharp_yuv={sharp_yuv}, preprocessing={preprocessing}, "
-               f"zip_compression={zip_compression}")
+    logger.info(f"Using parameters: quality={args.quality}, max_width={args.max_width}, "
+               f"max_height={args.max_height}, method={args.method}, "
+               f"sharp_yuv={args.sharp_yuv}, preprocessing={args.preprocessing}, "
+               f"zip_compression={args.zip_compression}, lossless={args.lossless}, "
+               f"auto_optimize={args.auto_optimize}")
 
     # Handle watch mode
     if args.watch:
@@ -176,15 +231,8 @@ def main():
                     logger.info(f"Cleared history file: {history_file}")
                 except Exception as e:
                     logger.error(f"Error clearing history file: {e}")
-
-        # We need to modify args to include the new parameters
-        args.method = method
-        args.sharp_yuv = sharp_yuv
-        args.preprocessing = preprocessing
-        args.zip_compression = zip_compression
-        args.quality = quality
         
-        return watch_directory(input_path, output_dir, args, logger)
+        return watch_directory(input_path, output_dir, args, logger, stats_tracker)
 
     # If not watch mode, process single file or directory
     start_time = time.time()
@@ -196,17 +244,19 @@ def main():
         success, original_size, new_size = process_single_file(
             input_file=input_path, 
             output_dir=output_dir,
-            quality=quality,
+            quality=args.quality,
             max_width=args.max_width,
             max_height=args.max_height,
             no_cbz=args.no_cbz,
             keep_originals=args.keep_originals,
             num_threads=args.threads,
             logger=logger,
-            method=method,
-            sharp_yuv=sharp_yuv,
-            preprocessing=preprocessing,
-            zip_compresslevel=zip_compression
+            method=args.method,
+            sharp_yuv=args.sharp_yuv,
+            preprocessing=args.preprocessing,
+            zip_compresslevel=args.zip_compression,
+            lossless=args.lossless,
+            auto_optimize=args.auto_optimize
         )
 
         if success:
@@ -227,13 +277,6 @@ def main():
             return 1
 
         logger.info(f"Found {len(archives)} comic archives to process.")
-
-        # We need to modify args to include the new parameters
-        args.method = method
-        args.sharp_yuv = sharp_yuv
-        args.preprocessing = preprocessing
-        args.zip_compression = zip_compression
-        args.quality = quality
         
         # Process the archives
         success_count, total_original_size, total_new_size, processed_files = process_archive_files(
