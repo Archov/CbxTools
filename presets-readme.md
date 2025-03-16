@@ -74,13 +74,11 @@ Presets are stored in JSON format. Here's an example:
   "manga": {
     "quality": 75,
     "method": 6,
-    "sharp_yuv": true,
     "preprocessing": "unsharp_mask",
     "zip_compression": 9,
     "max_width": 1400,
     "max_height": 2000,
     "lossless": false,
-    "auto_optimize": true,
     "description": "Optimized for manga with text enhancement and size limits"
   }
 }
@@ -90,13 +88,11 @@ Presets are stored in JSON format. Here's an example:
 
 - **quality**: WebP compression quality (0-100)
 - **method**: WebP compression method (0-6, higher = better compression but slower)
-- **sharp_yuv**: Boolean to enable better text rendering
 - **preprocessing**: One of "none", "unsharp_mask", "reduce_noise"
 - **zip_compression**: ZIP compression level for CBZ files (0-9)
 - **max_width**: Maximum width in pixels (0 = no limit)
 - **max_height**: Maximum height in pixels (0 = no limit)
 - **lossless**: Boolean to enable lossless compression
-- **auto_optimize**: Boolean to try both lossy and lossless and use the smaller
 - **description**: Optional description of the preset
 
 ## Preset Resolution Order

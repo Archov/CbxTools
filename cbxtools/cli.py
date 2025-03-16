@@ -37,10 +37,6 @@ def parse_arguments():
     compression_group = parser.add_argument_group('Advanced Compression Options')
     compression_group.add_argument('--method', type=int, choices=range(0, 7), default=None,
                         help='WebP compression method (0-6): higher = better compression but slower')
-    compression_group.add_argument('--sharp-yuv', action='store_true', default=None,
-                        help='Use sharp YUV conversion for better text quality')
-    compression_group.add_argument('--no-sharp-yuv', action='store_true',
-                        help='Disable sharp YUV conversion even if preset enables it')
     compression_group.add_argument('--preprocessing', choices=['none', 'unsharp_mask', 'reduce_noise'], default=None,
                         help='Apply preprocessing to images before compression')
     compression_group.add_argument('--zip-compression', type=int, choices=range(0, 10), default=None,
@@ -49,10 +45,6 @@ def parse_arguments():
                         help='Use lossless WebP compression (larger but perfect quality)')
     compression_group.add_argument('--no-lossless', action='store_true',
                         help='Disable lossless compression even if preset enables it')
-    compression_group.add_argument('--auto-optimize', action='store_true', default=None,
-                        help='Try both lossy and lossless and use smaller file')
-    compression_group.add_argument('--no-auto-optimize', action='store_true',
-                        help='Disable auto-optimization even if preset enables it')
     
     # Preset options
     preset_group = parser.add_argument_group('Preset Options')
@@ -110,12 +102,8 @@ def parse_arguments():
         parser.error("output_dir is required unless --list-presets, --stats-only, or --import-preset is specified")
     
     # Handle negation flags
-    if args.no_sharp_yuv:
-        args.sharp_yuv = False
     if args.no_lossless:
         args.lossless = False
-    if args.no_auto_optimize:
-        args.auto_optimize = False
     
     return args
 
@@ -211,11 +199,9 @@ def process_single_archive_file(input_path, output_dir, args, logger):
         num_threads=args.threads,
         logger=logger,
         method=args.method,
-        sharp_yuv=args.sharp_yuv,
         preprocessing=args.preprocessing,
         zip_compresslevel=args.zip_compression,
-        lossless=args.lossless,
-        auto_optimize=args.auto_optimize
+        lossless=args.lossless
     )
 
     if success and not args.no_cbz:
@@ -285,11 +271,9 @@ def process_directory_recursive(input_path, output_dir, args, logger):
             num_threads=args.threads,
             logger=logger,
             method=args.method,
-            sharp_yuv=args.sharp_yuv,
             preprocessing=args.preprocessing,
             zip_compresslevel=args.zip_compression,
-            lossless=args.lossless,
-            auto_optimize=args.auto_optimize
+            lossless=args.lossless
         )
         
         if success:
@@ -310,9 +294,6 @@ def process_directory_recursive(input_path, output_dir, args, logger):
                     logger.error(f"Error deleting file {archive}: {e}")
     
     return success_count, len(archives), total_original_size, total_new_size, processed_files
-
-
-# Moved to utils.py
 
 
 def main():
@@ -351,8 +332,8 @@ def main():
     overrides = {}
     for param in [
         'quality', 'max_width', 'max_height', 
-        'method','sharp_yuv','preprocessing',
-        'zip_compression','lossless','auto_optimize'
+        'method','preprocessing',
+        'zip_compression','lossless'
     ]:
         value = getattr(args, param)
         # Only override if the user explicitly set it 

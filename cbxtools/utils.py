@@ -91,9 +91,8 @@ def log_effective_parameters(args, logger, recursive=False):
     """
     logger.info(f"Using parameters: quality={args.quality}, max_width={args.max_width}, "
                f"max_height={args.max_height}, method={args.method}, "
-               f"sharp_yuv={args.sharp_yuv}, preprocessing={args.preprocessing}, "
-               f"zip_compression={args.zip_compression}, lossless={args.lossless}, "
-               f"auto_optimize={args.auto_optimize}")
+               f"preprocessing={args.preprocessing}, "
+               f"zip_compression={args.zip_compression}, lossless={args.lossless}")
     
     # Log recursive mode status
     if recursive:

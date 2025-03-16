@@ -60,14 +60,10 @@ cbxtools input_path output_dir [options]
 ### Advanced Compression Options
 
 - `--method VALUE`: WebP compression method (0-6): higher = better compression but slower
-- `--sharp-yuv`: Use sharp YUV conversion for better text quality
-- `--no-sharp-yuv`: Disable sharp YUV conversion even if preset enables it
 - `--preprocessing {none, unsharp_mask, reduce_noise}`: Apply preprocessing to images before compression
 - `--zip-compression VALUE`: ZIP compression level for CBZ (0-9)
 - `--lossless`: Use lossless WebP compression (larger but perfect quality)
 - `--no-lossless`: Disable lossless compression even if preset enables it
-- `--auto-optimize`: Try both lossy and lossless and use smaller file
-- `--no-auto-optimize`: Disable auto-optimization even if preset enables it
 
 ### Preset Options
 
@@ -106,7 +102,13 @@ CBXTools includes several built-in presets optimized for different types of cont
 - `default`: Balanced settings for most comic types
 - `comic`: Optimized for comic books with text and line art
 - `photo`: Better quality for photorealistic images
-- `maximum`: Maximum compression (lower quality)
+- `maximum_compression`: Maximum compression (lower quality)
+- `maximum_quality`: Highest quality with lossless compression
+- `phone_friendly`: Sized for mobile devices
+- `manga`: Optimized for manga content
+- `e_ink`: Optimized for e-ink readers with enhanced contrast
+- `fast_conversion`: Fastest processing with acceptable quality
+- `tiny`: Maximum compression with size limits
 
 You can view available presets with:
 
@@ -125,7 +127,7 @@ cbxtools my_comic.cbz output/ --preset comic
 Convert with custom quality and compression settings:
 
 ```bash
-cbxtools my_comic.cbz output/ --quality 85 --method 6 --sharp-yuv
+cbxtools my_comic.cbz output/ --quality 85 --method 6
 ```
 
 Convert all CBZ/CBR files in a directory recursively:

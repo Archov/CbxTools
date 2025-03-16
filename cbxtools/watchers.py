@@ -126,9 +126,8 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
     # Log the effective parameters being used
     logger.info(f"Using parameters: quality={args.quality}, max_width={args.max_width}, "
                f"max_height={args.max_height}, method={args.method}, "
-               f"sharp_yuv={args.sharp_yuv}, preprocessing={args.preprocessing}, "
-               f"zip_compression={args.zip_compression}, lossless={args.lossless}, "
-               f"auto_optimize={args.auto_optimize}")
+               f"preprocessing={args.preprocessing}, "
+               f"zip_compression={args.zip_compression}, lossless={args.lossless}")
     logger.info("Press Ctrl+C to stop watching")
 
     processed_files = set()
@@ -311,11 +310,9 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                         logger=logger,
                         packaging_queue=packaging_queue,
                         method=args.method,
-                        sharp_yuv=args.sharp_yuv,
                         preprocessing=args.preprocessing,
                         zip_compresslevel=args.zip_compression,
-                        lossless=args.lossless,
-                        auto_optimize=args.auto_optimize
+                        lossless=args.lossless
                     )
 
                     if success:

@@ -15,7 +15,48 @@ DEFAULT_PRESET_FILE = DEFAULT_CONFIG_DIR / 'presets.json'
 
 # Default presets built into the application
 DEFAULT_PRESETS = {
-
+  "default": {
+    "quality": 80,
+    "method": 4,
+    "preprocessing": None,
+    "zip_compression": 6,
+    "description": "Default settings with balanced quality and performance"
+  },
+  "comic": {
+    "quality": 75,
+    "method": 6,
+    "preprocessing": "unsharp_mask",
+    "zip_compression": 9,
+    "max_width": 0,
+    "max_height": 0,
+    "description": "Optimized for comic books with line art and text"
+  },
+  "photo": {
+    "quality": 85,
+    "method": 4,
+    "zip_compression": 6,
+    "description": "Higher quality settings for photographic content"
+  },
+  "maximum_compression": {
+    "quality": 70,
+    "method": 6,
+    "zip_compression": 9,
+    "description": "Prioritizes file size reduction over perfect quality"
+  },
+  "maximum_quality": {
+    "quality": 95,
+    "method": 6,
+    "lossless": True,
+    "zip_compression": 6,
+    "description": "Highest quality settings for minimal quality loss"
+  },
+  "manga": {
+    "quality": 70,
+    "method": 6,
+    "max_height": 2400,
+    "lossless": False,
+    "description": "Optimized for manga with text enhancement and size limits for e-readers"
+  }
 }
 
 # Global cache of loaded presets
@@ -199,11 +240,9 @@ def apply_preset_with_overrides(preset_name, overrides, logger=None):
         'max_width': 0,
         'max_height': 0,
         'method': 4,
-        'sharp_yuv': False,
         'preprocessing': None,
         'zip_compression': 6,
-        'lossless': False,
-        'auto_optimize': False
+        'lossless': False
     }
     
     for key, value in defaults.items():
@@ -224,8 +263,8 @@ def export_preset_from_args(args):
     # Extract relevant parameters from args
     params = {}
     possible_params = [
-        'quality', 'max_width', 'max_height', 'method', 'sharp_yuv',
-        'preprocessing', 'zip_compression', 'lossless', 'auto_optimize'
+        'quality', 'max_width', 'max_height', 'method',
+        'preprocessing', 'zip_compression', 'lossless'
     ]
     
     for param in possible_params:

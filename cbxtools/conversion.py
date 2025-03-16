@@ -18,8 +18,6 @@ from .utils import get_file_size_formatted
 from .archives import extract_archive, create_cbz
 
 
-# Modified portion of convert_single_image function in conversion.py
-
 def convert_single_image(args):
     """Convert a single image to WebP format with optimized parameters. Runs in a separate process."""
     img_path, webp_path, options = args
@@ -29,10 +27,8 @@ def convert_single_image(args):
     max_width = options.get('max_width', 0)
     max_height = options.get('max_height', 0)
     method = options.get('method', 4)
-    sharp_yuv = options.get('sharp_yuv', False)
     preprocessing = options.get('preprocessing')
     lossless = options.get('lossless', False)
-    auto_optimize = options.get('auto_optimize', False)
     
     try:
         webp_path.parent.mkdir(parents=True, exist_ok=True)
@@ -71,52 +67,15 @@ def convert_single_image(args):
                 except (ImportError, AttributeError):
                     pass  # Skip if not available
 
-            # Advanced WebP parameters
+            # WebP parameters
             webp_options = {
                 'quality': quality,
                 'method': method,
                 'lossless': lossless,
             }
             
-            # Auto-optimize: try both lossy and lossless, use smaller file
-            if auto_optimize and not lossless:
-                import tempfile
-                temp_dir = tempfile.gettempdir()
-                lossy_path = Path(temp_dir) / f"lossy_{webp_path.name}"
-                lossless_path = Path(temp_dir) / f"lossless_{webp_path.name}"
-                
-                # Save lossy version
-                lossy_options = webp_options.copy()
-                lossy_options['lossless'] = False
-                img.save(lossy_path, 'WEBP', **lossy_options)
-                
-                # Save lossless version
-                lossless_options = webp_options.copy()
-                lossless_options['lossless'] = True
-                if 'quality' in lossless_options:
-                    del lossless_options['quality']  # Lossless doesn't use quality
-                img.save(lossless_path, 'WEBP', **lossless_options)
-                
-                # Compare sizes and use the smaller one
-                lossy_size = lossy_path.stat().st_size
-                lossless_size = lossless_path.stat().st_size
-                
-                if lossy_size <= lossless_size: 
-                    # Lossy is smaller or equal, use it
-                    shutil.copy2(lossy_path, webp_path)
-                else:
-                    # Lossless is smaller, use it
-                    shutil.copy2(lossless_path, webp_path)
-                
-                # Clean up temp files
-                try:
-                    lossy_path.unlink()
-                    lossless_path.unlink()
-                except Exception:
-                    pass  # Ignore cleanup errors
-            else:
-                # Standard saving with specified options
-                img.save(webp_path, 'WEBP', **webp_options)
+            # Standard saving with specified options
+            img.save(webp_path, 'WEBP', **webp_options)
 
         return (img_path, webp_path, True, None)
     except Exception as e:
@@ -124,8 +83,8 @@ def convert_single_image(args):
 
 
 def convert_to_webp(extract_dir, output_dir, quality, max_width=0, max_height=0, 
-               num_threads=0, method=4, sharp_yuv=False, preprocessing=None, 
-               lossless=False, auto_optimize=False, logger=None):
+               num_threads=0, method=4, preprocessing=None, 
+               lossless=False, logger=None):
     """Convert all images in extract_dir to WebP format and copy all non-image files to output_dir."""
     import os
     import shutil
@@ -166,8 +125,8 @@ def convert_to_webp(extract_dir, output_dir, quality, max_width=0, max_height=0,
         num_threads = multiprocessing.cpu_count()
 
     logger.info(f"Converting {len(image_files)} images to WebP using {num_threads} threads...")
-    logger.info(f"WebP parameters: quality={quality}, method={method}, sharp_yuv={sharp_yuv}, "
-               f"preprocessing={preprocessing}, lossless={lossless}, auto_optimize={auto_optimize}")
+    logger.info(f"WebP parameters: quality={quality}, method={method}, "
+               f"preprocessing={preprocessing}, lossless={lossless}")
 
     # Package options for each image
     conversion_args = []
@@ -181,10 +140,8 @@ def convert_to_webp(extract_dir, output_dir, quality, max_width=0, max_height=0,
             'max_width': max_width,
             'max_height': max_height,
             'method': method,
-            'sharp_yuv': sharp_yuv,
             'preprocessing': preprocessing,
-            'lossless': lossless,
-            'auto_optimize': auto_optimize
+            'lossless': lossless
         }
         
         conversion_args.append((img_path, webp_path, options))
@@ -276,11 +233,9 @@ def process_single_file(
     logger,
     packaging_queue=None,
     method=6,              # Use higher compression method by default
-    sharp_yuv=True,        # Better text rendering by default
     preprocessing=None,    # Optional preprocessing
     zip_compresslevel=9,   # Maximum ZIP compression by default
-    lossless=False,        # Use lossy by default
-    auto_optimize=False    # Don't auto-optimize by default
+    lossless=False        # Use lossy by default
 ):
     """Process a single CBZ/CBR file with optimized parameters from presets."""
     from .utils import get_file_size_formatted
@@ -307,10 +262,8 @@ def process_single_file(
                 max_height, 
                 num_threads, 
                 method,
-                sharp_yuv,
                 preprocessing,
                 lossless,
-                auto_optimize,
                 logger
             )
 
@@ -359,8 +312,6 @@ def process_single_file(
         except Exception as e:
             logger.error(f"Error processing {input_file}: {e}")
             return False, orig_size_bytes, 0
-
-
 def process_archive_files(archives, output_dir, args, logger):
     """Process multiple archives with pipelining for improved performance."""
     total_original_size = 0
@@ -369,16 +320,14 @@ def process_archive_files(archives, output_dir, args, logger):
 
     # Extract all parameters from args
     method = args.method
-    sharp_yuv = args.sharp_yuv
     preprocessing = args.preprocessing
     zip_compression = args.zip_compression
     lossless = args.lossless
-    auto_optimize = args.auto_optimize
     
     # Report which parameters we're using
-    logger.info(f"Processing with parameters: method={method}, sharp_yuv={sharp_yuv}, "
+    logger.info(f"Processing with parameters: method={method}, "
                f"preprocessing={preprocessing}, zip_compression={zip_compression}, "
-               f"lossless={lossless}, auto_optimize={auto_optimize}")
+               f"lossless={lossless}")
 
     if not args.no_cbz and len(archives) > 1:
         logger.info(f"Processing {len(archives)} comics with pipelined approach...")
@@ -409,11 +358,9 @@ def process_archive_files(archives, output_dir, args, logger):
                 logger=logger,
                 packaging_queue=packaging_queue,
                 method=method,
-                sharp_yuv=sharp_yuv,
                 preprocessing=preprocessing,
                 zip_compresslevel=zip_compression,
-                lossless=lossless,
-                auto_optimize=auto_optimize
+                lossless=lossless
             )
             if success:
                 success_count += 1
@@ -446,11 +393,9 @@ def process_archive_files(archives, output_dir, args, logger):
                 num_threads=args.threads,
                 logger=logger,
                 method=method,
-                sharp_yuv=sharp_yuv,
                 preprocessing=preprocessing,
                 zip_compresslevel=zip_compression,
-                lossless=lossless,
-                auto_optimize=auto_optimize
+                lossless=lossless
             )
             if success:
                 success_count += 1
