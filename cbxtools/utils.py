@@ -45,37 +45,56 @@ def get_file_size_formatted(file_path_or_size):
 
     return f"{size:.2f} {units[idx]}", size_bytes
 
-def get_preset_parameters(preset):
-    """Get optimized parameters based on preset name."""
-    presets = {
-        'default': {
-            'method': 4,
-            'sharp_yuv': False,
-            'preprocessing': None,
-            'zip_compression': 6,
-            'quality_adjustment': 0
-        },
-        'comic': {
-            'method': 6,                # Best compression method
-            'sharp_yuv': True,          # Better text rendering
-            'preprocessing': 'unsharp_mask', # Enhance line art
-            'zip_compression': 9,       # Maximum ZIP compression
-            'quality_adjustment': -5    # Slightly lower quality for better compression
-        },
-        'photo': {
-            'method': 4,
-            'sharp_yuv': False,         # Not needed for photos
-            'preprocessing': None,      # No preprocessing for photos
-            'zip_compression': 6,
-            'quality_adjustment': 5     # Higher quality for photos
-        },
-        'maximum': {
-            'method': 6,                # Best compression method
-            'sharp_yuv': True,          # Better text rendering
-            'preprocessing': None,      # No preprocessing
-            'zip_compression': 9,       # Maximum ZIP compression
-            'quality_adjustment': -10   # Lower quality for maximum compression
-        }
-    }
+
+def remove_empty_dirs(directory, root_dir, logger):
+    """
+    Recursively removes empty directories starting from directory up to root_dir.
+    Stops if a non-empty directory is encountered.
     
-    return presets.get(preset, presets['default'])
+    Args:
+        directory: The directory to check and potentially remove
+        root_dir: The root directory to stop at (won't be removed)
+        logger: Logger instance for logging messages
+    """
+    # Convert to Path objects if they aren't already
+    directory = Path(directory)
+    root_dir = Path(root_dir)
+    
+    # Don't attempt to remove the root directory or any directory outside the root
+    if directory == root_dir or not str(directory).startswith(str(root_dir)):
+        return
+    
+    # Check if directory exists and is a directory
+    if not directory.is_dir():
+        return
+    
+    # Check if directory is empty
+    if not any(directory.iterdir()):
+        try:
+            directory.rmdir()
+            logger.info(f"Removed empty directory: {directory}")
+            
+            # Recursively check parent directories
+            remove_empty_dirs(directory.parent, root_dir, logger)
+        except Exception as e:
+            logger.error(f"Error removing directory {directory}: {e}")
+
+
+def log_effective_parameters(args, logger, recursive=False):
+    """
+    Log the effective parameters being used for conversion.
+    
+    Args:
+        args: Parsed command line arguments
+        logger: Logger instance
+        recursive: Whether recursive mode is enabled
+    """
+    logger.info(f"Using parameters: quality={args.quality}, max_width={args.max_width}, "
+               f"max_height={args.max_height}, method={args.method}, "
+               f"sharp_yuv={args.sharp_yuv}, preprocessing={args.preprocessing}, "
+               f"zip_compression={args.zip_compression}, lossless={args.lossless}, "
+               f"auto_optimize={args.auto_optimize}")
+    
+    # Log recursive mode status
+    if recursive:
+        logger.info("Recursive mode enabled")

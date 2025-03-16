@@ -2,6 +2,7 @@
 """
 Watch mode logic for CBZ/CBR to WebP converter.
 Reserves one thread for CBZ packaging and uses the rest for image conversion.
+Supports recursive directory watching and preserves source directory structure.
 """
 
 import time
@@ -18,10 +19,82 @@ from .conversion import process_single_file, cbz_packaging_worker
 from .stats_tracker import print_lifetime_stats
 
 
+def _remove_empty_dirs(directory, root_dir, logger):
+    """
+    Recursively removes empty directories starting from directory up to root_dir.
+    Stops if a non-empty directory is encountered.
+    
+    Args:
+        directory: The directory to check and potentially remove
+        root_dir: The root directory to stop at (won't be removed)
+        logger: Logger instance for logging messages
+    """
+    # Convert to Path objects if they aren't already
+    directory = Path(directory)
+    root_dir = Path(root_dir)
+    
+    # Don't attempt to remove the root directory or any directory outside the root
+    if directory == root_dir or not str(directory).startswith(str(root_dir)):
+        return
+    
+    # Check if directory exists and is a directory
+    if not directory.is_dir():
+        return
+    
+    # Check if directory is empty
+    if not any(directory.iterdir()):
+        try:
+            directory.rmdir()
+            logger.info(f"Removed empty directory: {directory}")
+            
+            # Recursively check parent directories
+            _remove_empty_dirs(directory.parent, root_dir, logger)
+        except Exception as e:
+            logger.error(f"Error removing directory {directory}: {e}")
+
+
+def cleanup_empty_directories(root_dir, logger):
+    """
+    Remove all empty directories under root_dir (bottom-up traversal).
+    
+    Args:
+        root_dir: The root directory to clean up
+        logger: Logger instance for logging messages
+    """
+    import os
+    
+    root_dir = Path(root_dir)
+    removed_count = 0
+    
+    # Get all subdirectories (excluding root) as Path objects
+    all_dirs = []
+    for dirpath, dirnames, _ in os.walk(root_dir, topdown=False):
+        for dirname in dirnames:
+            all_dirs.append(Path(dirpath) / dirname)
+    
+    # Sort by depth (deepest first) to ensure we process child directories before parents
+    all_dirs.sort(key=lambda p: len(p.parts), reverse=True)
+    
+    # Remove empty directories
+    for directory in all_dirs:
+        if not any(directory.iterdir()):
+            try:
+                directory.rmdir()
+                removed_count += 1
+                logger.debug(f"Removed empty directory: {directory}")
+            except Exception as e:
+                logger.error(f"Error removing directory {directory}: {e}")
+    
+    if removed_count > 0:
+        logger.info(f"Removed {removed_count} pre-existing empty directories")
+    else:
+        logger.info("No empty directories found")
+
 def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
     """
     Watch a directory for new CBZ/CBR files and process them with optimized parameters.
     Updates lifetime statistics when files are processed.
+    Supports recursive monitoring and preserves directory structure.
     
     Args:
         input_dir: Directory to watch for new files
@@ -35,7 +108,13 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
     logger.info(f"Watching directory: {input_dir}")
     logger.info(f"Output directory: {output_dir}")
     logger.info(f"Checking every {args.watch_interval} seconds")
+    logger.info(f"Recursive mode: {'enabled' if args.recursive else 'disabled'}")
     logger.info(f"Using history file: {history_file}")
+    
+    # Clean up any pre-existing empty directories if delete_originals is enabled
+    if args.delete_originals and args.recursive:
+        logger.info("Checking for pre-existing empty directories...")
+        cleanup_empty_directories(input_dir, logger)
     
     # Track whether statistics are enabled
     stats_enabled = stats_tracker is not None
@@ -203,20 +282,26 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                 print_lifetime_stats(stats_tracker, logger)
                 logger.info(f"Session summary: Processed {session_files_processed} files, "
                            f"saved {(session_original_size - session_new_size) / (1024*1024):.2f}MB")
-                           
+            
             # Check for new files to process
-            archives = find_comic_archives(input_dir, recursive=False)
+            archives = find_comic_archives(input_dir, recursive=args.recursive)
             new_archives = [a for a in archives if a not in processed_files]
 
             if new_archives:
                 logger.info(f"Found {len(new_archives)} new file(s) to process")
 
                 for archive in new_archives:
+                    # Determine the relative path structure to preserve
+                    rel_path = archive.parent.relative_to(input_dir)
+                    target_output_dir = output_dir / rel_path
+                    target_output_dir.mkdir(parents=True, exist_ok=True)
+                    
                     logger.info(f"Processing: {archive}")
+                    logger.debug(f"Output directory: {target_output_dir}")
 
                     success, original_size, result = process_single_file(
                         input_file=archive,
-                        output_dir=output_dir,
+                        output_dir=target_output_dir,  # Use the mirrored directory structure
                         quality=args.quality,
                         max_width=args.max_width,
                         max_height=args.max_height,
@@ -259,8 +344,12 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
 
                         if args.delete_originals:
                             try:
+                                # Delete the original file
                                 archive.unlink()
                                 logger.info(f"Deleted original file: {archive}")
+                                
+                                # Check if parent directory is now empty and remove if it is
+                                _remove_empty_dirs(archive.parent, input_dir, logger)
                             except Exception as e:
                                 logger.error(f"Error deleting file {archive}: {e}")
                     else:

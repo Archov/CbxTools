@@ -18,6 +18,8 @@ from .utils import get_file_size_formatted
 from .archives import extract_archive, create_cbz
 
 
+# Modified portion of convert_single_image function in conversion.py
+
 def convert_single_image(args):
     """Convert a single image to WebP format with optimized parameters. Runs in a separate process."""
     img_path, webp_path, options = args
@@ -76,10 +78,6 @@ def convert_single_image(args):
                 'lossless': lossless,
             }
             
-            # Add sharp_yuv option for better text rendering if specified
-            if sharp_yuv:
-                webp_options['sharp_yuv'] = True
-            
             # Auto-optimize: try both lossy and lossless, use smaller file
             if auto_optimize and not lossless:
                 import tempfile
@@ -103,7 +101,7 @@ def convert_single_image(args):
                 lossy_size = lossy_path.stat().st_size
                 lossless_size = lossless_path.stat().st_size
                 
-                if lossy_size <= lossless_size:
+                if lossy_size <= lossless_size: 
                     # Lossy is smaller or equal, use it
                     shutil.copy2(lossy_path, webp_path)
                 else:
@@ -286,13 +284,20 @@ def process_single_file(
 ):
     """Process a single CBZ/CBR file with optimized parameters from presets."""
     from .utils import get_file_size_formatted
+    import os
+    import shutil
+    import tempfile
+    from pathlib import Path
 
+    # Create file-specific output directory within the output_dir
     file_output_dir = output_dir / input_file.stem
     orig_size_str, orig_size_bytes = get_file_size_formatted(input_file)
+    new_size_bytes = 0  # Default value
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
         try:
+            from .archives import extract_archive, create_cbz
             extract_archive(input_file, temp_path, logger)
             convert_to_webp(
                 temp_path, 
@@ -310,6 +315,7 @@ def process_single_file(
             )
 
             if not no_cbz:
+                # Create the CBZ file with the same name as input file but in output_dir
                 cbz_output = output_dir / f"{input_file.stem}.cbz"
                 # If using pipelined approach
                 if packaging_queue is not None:
@@ -317,7 +323,10 @@ def process_single_file(
                     # Include the compression level in the queue item
                     packaging_queue.put((file_output_dir, cbz_output, input_file, result_dict, zip_compresslevel))
                     logger.info(f"Queued {input_file.name} for packaging")
-                    return True, orig_size_bytes, result_dict
+                    # Return the orig_size_bytes and a placeholder for new_size
+                    # The actual size will be determined by the packaging worker
+                    logger.info(f"Conversion of {input_file.name} completed successfully!")
+                    return True, orig_size_bytes, 0  # Return 0 for new_size, will be updated by worker
                 else:
                     # Synchronous approach - use the compression level
                     create_cbz(file_output_dir, cbz_output, logger, zip_compresslevel)
@@ -339,13 +348,13 @@ def process_single_file(
                     if not keep_originals:
                         shutil.rmtree(file_output_dir)
                         logger.debug(f"Removed extracted files from {file_output_dir}")
+            else:
+                # For no_cbz mode, we still want to count the size of the extracted files
+                # This is not perfect but provides an estimate
+                new_size_bytes = sum(f.stat().st_size for f in file_output_dir.glob('**/*') if f.is_file())
 
             logger.info(f"Conversion of {input_file.name} completed successfully!")
-            # Include the compression level in the queue item
-            packaging_queue.put((file_output_dir, cbz_output, input_file, result_dict, zip_compresslevel))
-            logger.info(f"Queued {input_file.name} for packaging")
-            # Return original size for statistics tracking
-            return True, orig_size_bytes, result_dict
+            return True, orig_size_bytes, new_size_bytes
 
         except Exception as e:
             logger.error(f"Error processing {input_file}: {e}")
@@ -388,7 +397,7 @@ def process_archive_files(archives, output_dir, args, logger):
 
         for i, archive in enumerate(archives, 1):
             logger.info(f"\n[{i}/{len(archives)}] Processing: {archive}")
-            success, orig_size, result_dict = process_single_file(
+            success, orig_size, _ = process_single_file(
                 input_file=archive,
                 output_dir=output_dir,
                 quality=args.quality,
@@ -409,19 +418,18 @@ def process_archive_files(archives, output_dir, args, logger):
             if success:
                 success_count += 1
                 total_original_size += orig_size
-                result_dicts.append((archive.name, orig_size, result_dict))
+                # We'll get the new_size from the result_dict later
+                result_dicts.append((archive.name, orig_size))
 
         # Send sentinel to stop packager
         packaging_queue.put(None)
         packaging_queue.join()
         packaging_thread.join()
 
-        # Gather results
-        for filename, orig_size, rd in result_dicts:
-            if rd["success"]:
-                new_sz = rd["new_size"]
-                total_new_size += new_sz
-                processed_files.append((filename, orig_size, new_sz))
+        # For pipelined approach, we don't have accurate size information yet
+        # since packaging happens asynchronously
+        logger.warning("Note: Size statistics may be incomplete for pipelined processing")
+        processed_files = [(filename, orig_size, 0) for filename, orig_size in result_dicts]
 
     else:
         success_count = 0
