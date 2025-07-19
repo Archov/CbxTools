@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
 Command-line interface for CBZ/CBR to WebP converter.
+Enhanced with automatic greyscale detection, conversion, and dependency management.
 """
 
 import sys
 import time
 import argparse
+import subprocess
 from pathlib import Path
 
 from .utils import setup_logging, remove_empty_dirs, log_effective_parameters
@@ -15,11 +17,215 @@ from .stats_tracker import StatsTracker, print_summary_report, print_lifetime_st
 from .watchers import watch_directory, cleanup_empty_directories
 from .presets import (list_available_presets, apply_preset_with_overrides, 
                      export_preset_from_args, save_preset, import_presets_from_file)
+from .debug_utils import (debug_single_file_greyscale, test_threshold_ranges, 
+                         analyze_directory_for_auto_greyscale)
+
+
+def check_and_install_dependencies(logger, auto_install=False):
+    """
+    Check for required and optional dependencies and offer to install missing ones.
+    
+    Args:
+        logger: Logger instance
+        auto_install: If True, automatically install missing dependencies
+    
+    Returns:
+        dict: Status of dependencies
+    """
+    dependencies = {
+        'required': {
+            'PIL': {
+                'import_name': 'PIL',
+                'package_name': 'pillow',
+                'description': 'Required for image processing',
+                'available': False
+            },
+            'rarfile': {
+                'import_name': 'rarfile',
+                'package_name': 'rarfile',
+                'description': 'Required for CBR archive extraction',
+                'available': False
+            },
+            'patoolib': {
+                'import_name': 'patoolib',
+                'package_name': 'patool',
+                'description': 'Required for general archive extraction',
+                'available': False
+            }
+        },
+        'optional': {
+            'numpy': {
+                'import_name': 'numpy',
+                'package_name': 'numpy',
+                'description': 'Optional for auto-greyscale image analysis (enhances performance)',
+                'available': False
+            },
+            'matplotlib': {
+                'import_name': 'matplotlib',
+                'package_name': 'matplotlib',
+                'description': 'Optional for debug histogram visualizations',
+                'available': False
+            }
+        }
+    }
+    
+    # Check which dependencies are available
+    for category, deps in dependencies.items():
+        for name, info in deps.items():
+            try:
+                __import__(info['import_name'])
+                info['available'] = True
+            except ImportError:
+                info['available'] = False
+    
+    # Report status
+    missing_required = []
+    missing_optional = []
+    
+    for name, info in dependencies['required'].items():
+        if info['available']:
+            logger.debug(f"✓ {name} is available")
+        else:
+            logger.warning(f"✗ {name} is missing - {info['description']}")
+            missing_required.append(info)
+    
+    for name, info in dependencies['optional'].items():
+        if info['available']:
+            logger.debug(f"✓ {name} is available")
+        else:
+            logger.info(f"○ {name} is missing - {info['description']}")
+            missing_optional.append(info)
+    
+    # Handle missing dependencies
+    if missing_required or missing_optional:
+        if missing_required:
+            logger.error(f"Missing {len(missing_required)} required dependencies!")
+        if missing_optional:
+            logger.info(f"Missing {len(missing_optional)} optional dependencies")
+        
+        # Offer to install
+        missing_all = missing_required + missing_optional
+        if missing_all:
+            if auto_install:
+                return install_dependencies(missing_all, logger)
+            else:
+                return offer_to_install_dependencies(missing_all, logger)
+    
+    # If no missing dependencies, return success status
+    return {
+        'all_required_available': True,
+        'missing_required': [],
+        'missing_optional': []
+    }
+
+
+def offer_to_install_dependencies(missing_deps, logger):
+    """
+    Offer to install missing dependencies interactively.
+    
+    Args:
+        missing_deps: List of missing dependency info dicts
+        logger: Logger instance
+    
+    Returns:
+        dict: Installation results
+    """
+    logger.info("\nMissing dependencies detected:")
+    
+    for dep in missing_deps:
+        logger.info(f"  - {dep['package_name']}: {dep['description']}")
+    
+    logger.info("\nOptions:")
+    logger.info("  1. Install all missing dependencies automatically")
+    logger.info("  2. Install only required dependencies")
+    logger.info("  3. Install manually with: pip install " + " ".join(dep['package_name'] for dep in missing_deps))
+    logger.info("  4. Continue without installing (some features may not work)")
+    
+    try:
+        choice = input("\nChoose an option (1-4): ").strip()
+        
+        if choice == '1':
+            return install_dependencies(missing_deps, logger)
+        elif choice == '2':
+            # Filter for required dependencies only
+            required_packages = ['pillow', 'rarfile', 'patool']
+            required_deps = [dep for dep in missing_deps if dep['package_name'] in required_packages]
+            return install_dependencies(required_deps, logger)
+        elif choice == '3':
+            packages = " ".join(dep['package_name'] for dep in missing_deps)
+            logger.info(f"\nTo install manually, run this command:")
+            logger.info(f"  pip install {packages}")
+            logger.info("\nOr use the built-in installer:")
+            logger.info(f"  {sys.argv[0]} --install-dependencies")
+            return {'all_required_available': False, 'user_declined': True}
+        else:
+            logger.info("Continuing without installing dependencies...")
+            return {'all_required_available': False, 'user_declined': True}
+            
+    except (KeyboardInterrupt, EOFError):
+        logger.info("\nInstallation cancelled by user.")
+        return {'all_required_available': False, 'user_declined': True}
+
+
+def install_dependencies(deps_to_install, logger):
+    """
+    Install dependencies using pip.
+    
+    Args:
+        deps_to_install: List of dependency info dicts to install
+        logger: Logger instance
+    
+    Returns:
+        dict: Installation results
+    """
+    packages = [dep['package_name'] for dep in deps_to_install]
+    logger.info(f"\nInstalling dependencies: {', '.join(packages)}")
+    
+    # Check if pip is available
+    try:
+        subprocess.run([sys.executable, '-m', 'pip', '--version'], 
+                      capture_output=True, check=True, timeout=30)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+        logger.error("pip is not available or not working properly")
+        logger.error("Please install pip first or install packages manually:")
+        logger.error(f"  pip install {' '.join(packages)}")
+        return {'all_required_available': False, 'pip_unavailable': True}
+    
+    try:
+        # Use subprocess to install packages
+        cmd = [sys.executable, '-m', 'pip', 'install'] + packages
+        logger.info(f"Running: {' '.join(cmd)}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        
+        if result.returncode == 0:
+            logger.info("✓ Dependencies installed successfully!")
+            logger.info("Note: You may need to restart the application for changes to take effect.")
+            return {'all_required_available': True, 'installation_success': True}
+        else:
+            logger.error(f"Failed to install dependencies:")
+            if result.stdout.strip():
+                logger.error(f"STDOUT: {result.stdout.strip()}")
+            if result.stderr.strip():
+                logger.error(f"STDERR: {result.stderr.strip()}")
+            logger.error("You may need to install packages manually or with elevated privileges.")
+            return {'all_required_available': False, 'installation_failed': True}
+            
+    except subprocess.TimeoutExpired:
+        logger.error("Installation timed out after 5 minutes")
+        return {'all_required_available': False, 'installation_timeout': True}
+    except Exception as e:
+        logger.error(f"Error during installation: {e}")
+        return {'all_required_available': False, 'installation_error': str(e)}
 
 
 def parse_arguments():
-    """Parse command line arguments with support for presets."""
-    parser = argparse.ArgumentParser(description='Convert CBZ/CBR images to WebP format')
+    """Parse command line arguments with support for presets and auto-greyscale."""
+    parser = argparse.ArgumentParser(
+        description='Convert CBZ/CBR images to WebP format',
+        epilog='Use --check-dependencies to verify all required packages are installed, '
+               'or --install-dependencies to automatically install missing packages.'
+    )
     parser.add_argument('input_path', nargs='?', default=None,
                         help='Path to CBZ/CBR file or directory containing multiple archives')
     parser.add_argument('output_dir', nargs='?', default=None,
@@ -45,6 +251,25 @@ def parse_arguments():
                         help='Use lossless WebP compression (larger but perfect quality)')
     compression_group.add_argument('--no-lossless', action='store_true',
                         help='Disable lossless compression even if preset enables it')
+    
+    # Image transformation options
+    transform_group = parser.add_argument_group('Image Transformation Options')
+    transform_group.add_argument('--grayscale', action='store_true', default=None,
+                        help='Convert images to grayscale before compression')
+    transform_group.add_argument('--no-grayscale', action='store_true',
+                        help='Disable grayscale conversion even if preset enables it')
+    transform_group.add_argument('--auto-contrast', action='store_true', default=None,
+                        help='Apply automatic contrast enhancement before compression')
+    transform_group.add_argument('--no-auto-contrast', action='store_true',
+                        help='Disable auto-contrast even if preset enables it')
+    transform_group.add_argument('--auto-greyscale', action='store_true', default=None,
+                        help='Automatically detect and convert near-greyscale images to greyscale')
+    transform_group.add_argument('--no-auto-greyscale', action='store_true',
+                        help='Disable auto-greyscale even if preset enables it')
+    transform_group.add_argument('--auto-greyscale-pixel-threshold', type=int, default=None,
+                        help='Pixel difference threshold for auto-greyscale detection (default: 16)')
+    transform_group.add_argument('--auto-greyscale-percent-threshold', type=float, default=None,
+                        help='Percentage of colored pixels threshold for auto-greyscale (default: 0.01)')
     
     # Preset options
     preset_group = parser.add_argument_group('Preset Options')
@@ -92,18 +317,59 @@ def parse_arguments():
     parser.add_argument('--clear-history', action='store_true',
                         help='Clear watch history file before starting watch mode')
     
+    # Debug options
+    debug_group = parser.add_argument_group('Debug Options')
+    debug_group.add_argument('--debug-auto-greyscale', action='store_true',
+                        help='Enable detailed debugging for auto-greyscale detection (saves analysis files and visualizations)')
+    debug_group.add_argument('--debug-auto-greyscale-single', type=str, metavar='FILE_PATH',
+                        help='Analyze a single image or CBZ/CBR file for auto-greyscale debugging and exit')
+    debug_group.add_argument('--debug-output-dir', type=str, default=None,
+                        help='Output directory for debug files (default: same as output_dir)')
+    debug_group.add_argument('--debug-test-thresholds', type=str, metavar='IMAGE_PATH',
+                        help='Test multiple threshold combinations on a single image and exit')
+    debug_group.add_argument('--debug-analyze-directory', type=str, metavar='DIRECTORY_PATH',
+                        help='Analyze all images in directory with current thresholds and exit')
+    
+    # Dependency management options
+    dep_group = parser.add_argument_group('Dependency Management Options')
+    dep_group.add_argument('--check-dependencies', action='store_true',
+                        help='Check for dependencies and exit')
+    dep_group.add_argument('--install-dependencies', action='store_true',
+                        help='Automatically install missing dependencies and exit')
+    dep_group.add_argument('--skip-dependency-check', action='store_true',
+                        help='Skip dependency checking on startup')
+    
     args = parser.parse_args()
     
-    # Validate required arguments based on actions
-    if not args.list_presets and args.input_path is None and not args.import_preset:
-        parser.error("input_path is required unless --list-presets or --import-preset is specified")
+    # Check if any debug operations are requested
+    debug_operations = any([
+        args.debug_auto_greyscale_single,
+        args.debug_test_thresholds,
+        args.debug_analyze_directory
+    ])
     
-    if not args.list_presets and not args.stats_only and args.input_path is not None and args.output_dir is None and not args.import_preset:
-        parser.error("output_dir is required unless --list-presets, --stats-only, or --import-preset is specified")
+    # Check if any dependency operations are requested
+    dependency_operations = any([
+        args.check_dependencies,
+        args.install_dependencies
+    ])
+    
+    # Validate required arguments based on actions
+    if not args.list_presets and args.input_path is None and not args.import_preset and not debug_operations and not dependency_operations and not args.stats_only:
+        parser.error("input_path is required unless --list-presets, --import-preset, --stats-only, dependency operations, or debug operations are specified")
+    
+    if not args.list_presets and not args.stats_only and args.input_path is not None and args.output_dir is None and not args.import_preset and not debug_operations and not dependency_operations:
+        parser.error("output_dir is required unless --list-presets, --stats-only, --import-preset, dependency operations, or debug operations are specified")
     
     # Handle negation flags
     if args.no_lossless:
         args.lossless = False
+    if args.no_grayscale:
+        args.grayscale = False
+    if args.no_auto_contrast:
+        args.auto_contrast = False
+    if args.no_auto_greyscale:
+        args.auto_greyscale = False
     
     return args
 
@@ -165,6 +431,129 @@ def handle_stats_only(stats_tracker, logger):
     return 0
 
 
+def handle_dependency_operations(args, logger):
+    """Handle dependency checking and installation operations."""
+    if args.check_dependencies:
+        logger.info("Checking dependencies...")
+        dep_status = check_and_install_dependencies(logger, auto_install=False)
+        
+        if dep_status['all_required_available']:
+            logger.info("✓ All required dependencies are available")
+            if not dep_status.get('missing_optional'):
+                logger.info("✓ All optional dependencies are available")
+            else:
+                logger.info(f"○ {len(dep_status['missing_optional'])} optional dependencies are missing")
+            return 0
+        else:
+            logger.error(f"✗ {len(dep_status['missing_required'])} required dependencies are missing")
+            return 1
+    
+    elif args.install_dependencies:
+        logger.info("Installing missing dependencies...")
+        dep_status = check_and_install_dependencies(logger, auto_install=True)
+        
+        if dep_status.get('installation_success'):
+            logger.info("✓ Dependencies installed successfully")
+            return 0
+        elif dep_status.get('all_required_available'):
+            logger.info("✓ All required dependencies were already available")
+            return 0
+        else:
+            logger.error("✗ Failed to install dependencies")
+            return 1
+    
+    return None
+
+
+def handle_debug_operations(args, logger):
+    """
+    Handle all debug operations. Returns exit code or None to continue normal processing.
+    """
+    from pathlib import Path
+    
+    # Handle single file debug (image or CBZ/CBR)
+    if args.debug_auto_greyscale_single:
+        file_path = Path(args.debug_auto_greyscale_single).resolve()
+        if not file_path.exists():
+            logger.error(f"File not found: {file_path}")
+            return 1
+        
+        output_dir = Path(args.debug_output_dir).resolve() if args.debug_output_dir else file_path.parent
+        
+        # Get thresholds from args or defaults - need to handle preset application
+        pixel_threshold = getattr(args, 'auto_greyscale_pixel_threshold', None)
+        percent_threshold = getattr(args, 'auto_greyscale_percent_threshold', None)
+        
+        # If thresholds are None, apply preset defaults
+        if pixel_threshold is None or percent_threshold is None:
+            # Apply preset to get defaults
+            from .presets import apply_preset_with_overrides
+            preset_params = apply_preset_with_overrides(getattr(args, 'preset', 'default'), {}, logger)
+            
+            if pixel_threshold is None:
+                pixel_threshold = preset_params.get('auto_greyscale_pixel_threshold', 16)
+            if percent_threshold is None:
+                percent_threshold = preset_params.get('auto_greyscale_percent_threshold', 0.01)
+        
+        result = debug_single_file_greyscale(
+            file_path, output_dir, pixel_threshold, percent_threshold, logger
+        )
+        
+        if result:
+            logger.info(f"\nDebug files saved to: {output_dir / 'debug_auto_greyscale'}")
+            return 0
+        else:
+            return 1
+    
+    # Handle threshold testing
+    if args.debug_test_thresholds:
+        image_path = Path(args.debug_test_thresholds).resolve()
+        if not image_path.exists():
+            logger.error(f"Image file not found: {image_path}")
+            return 1
+        
+        output_dir = Path(args.debug_output_dir).resolve() if args.debug_output_dir else image_path.parent
+        
+        result = test_threshold_ranges(image_path, output_dir, logger)
+        if result:
+            return 0
+        else:
+            return 1
+    
+    # Handle directory analysis
+    if args.debug_analyze_directory:
+        directory_path = Path(args.debug_analyze_directory).resolve()
+        if not directory_path.exists() or not directory_path.is_dir():
+            logger.error(f"Directory not found: {directory_path}")
+            return 1
+        
+        # Get thresholds from args or defaults - need to handle preset application
+        pixel_threshold = getattr(args, 'auto_greyscale_pixel_threshold', None)
+        percent_threshold = getattr(args, 'auto_greyscale_percent_threshold', None)
+        
+        # If thresholds are None, apply preset defaults
+        if pixel_threshold is None or percent_threshold is None:
+            # Apply preset to get defaults
+            from .presets import apply_preset_with_overrides
+            preset_params = apply_preset_with_overrides(getattr(args, 'preset', 'default'), {}, logger)
+            
+            if pixel_threshold is None:
+                pixel_threshold = preset_params.get('auto_greyscale_pixel_threshold', 16)
+            if percent_threshold is None:
+                percent_threshold = preset_params.get('auto_greyscale_percent_threshold', 0.01)
+        
+        result = analyze_directory_for_auto_greyscale(
+            directory_path, pixel_threshold, percent_threshold, logger
+        )
+        if result:
+            return 0
+        else:
+            return 1
+    
+    # No debug operations requested
+    return None
+
+
 def handle_watch_mode(input_path, output_dir, args, logger, stats_tracker):
     """Handle watch mode operation."""
     # Watch mode requires an input directory
@@ -201,7 +590,12 @@ def process_single_archive_file(input_path, output_dir, args, logger):
         method=args.method,
         preprocessing=args.preprocessing,
         zip_compresslevel=args.zip_compression,
-        lossless=args.lossless
+        lossless=args.lossless,
+        grayscale=args.grayscale,
+        auto_contrast=args.auto_contrast,
+        auto_greyscale=args.auto_greyscale,
+        auto_greyscale_pixel_threshold=args.auto_greyscale_pixel_threshold,
+        auto_greyscale_percent_threshold=args.auto_greyscale_percent_threshold
     )
 
     if success and not args.no_cbz:
@@ -273,7 +667,12 @@ def process_directory_recursive(input_path, output_dir, args, logger):
             method=args.method,
             preprocessing=args.preprocessing,
             zip_compresslevel=args.zip_compression,
-            lossless=args.lossless
+            lossless=args.lossless,
+            grayscale=args.grayscale,
+            auto_contrast=args.auto_contrast,
+            auto_greyscale=args.auto_greyscale,
+            auto_greyscale_pixel_threshold=args.auto_greyscale_pixel_threshold,
+            auto_greyscale_percent_threshold=args.auto_greyscale_percent_threshold
         )
         
         if success:
@@ -299,6 +698,19 @@ def process_directory_recursive(input_path, output_dir, args, logger):
 def main():
     args = parse_arguments()
     logger = setup_logging(args.verbose, args.silent)
+    
+    # Handle dependency operations first
+    dependency_result = handle_dependency_operations(args, logger)
+    if dependency_result is not None:
+        return dependency_result
+    
+    # Check dependencies early unless user explicitly wants to skip
+    if not getattr(args, 'skip_dependency_check', False):
+        dep_status = check_and_install_dependencies(logger, auto_install=False)
+        if not dep_status['all_required_available']:
+            if not dep_status.get('user_declined', False):
+                logger.error("Required dependencies are missing. Please install them and try again.")
+                return 1
 
     # Handle preset listing
     if args.list_presets:
@@ -316,6 +728,11 @@ def main():
     # If only showing stats, display and exit
     if args.stats_only:
         return handle_stats_only(stats_tracker, logger)
+    
+    # Handle debug operations (check for debug modes early)
+    debug_exit_code = handle_debug_operations(args, logger)
+    if debug_exit_code is not None:
+        return debug_exit_code
 
     # Resolve paths
     input_path = Path(args.input_path).resolve()
@@ -332,8 +749,10 @@ def main():
     overrides = {}
     for param in [
         'quality', 'max_width', 'max_height', 
-        'method','preprocessing',
-        'zip_compression','lossless'
+        'method', 'preprocessing',
+        'zip_compression', 'lossless',
+        'grayscale', 'auto_contrast',
+        'auto_greyscale', 'auto_greyscale_pixel_threshold', 'auto_greyscale_percent_threshold'
     ]:
         value = getattr(args, param)
         # Only override if the user explicitly set it 
@@ -415,7 +834,6 @@ def main():
         print_lifetime_stats(stats_tracker, logger)
 
     return return_code
-
 
 if __name__ == "__main__":
     sys.exit(main())

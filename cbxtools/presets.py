@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Preset management for CBZ/CBR to WebP converter.
-Stores all presets in a single presets.json file that's automatically loaded.
+Loads default presets from JSON file and manages user presets.
 """
 
 import json
@@ -13,54 +13,52 @@ import logging
 DEFAULT_CONFIG_DIR = Path.home() / '.cbxtools'
 DEFAULT_PRESET_FILE = DEFAULT_CONFIG_DIR / 'presets.json'
 
-# Default presets built into the application
-DEFAULT_PRESETS = {
-  "default": {
-    "quality": 80,
-    "method": 4,
-    "preprocessing": None,
-    "zip_compression": 6,
-    "description": "Default settings with balanced quality and performance"
-  },
-  "comic": {
-    "quality": 75,
-    "method": 6,
-    "preprocessing": "unsharp_mask",
-    "zip_compression": 9,
-    "max_width": 0,
-    "max_height": 0,
-    "description": "Optimized for comic books with line art and text"
-  },
-  "photo": {
-    "quality": 85,
-    "method": 4,
-    "zip_compression": 6,
-    "description": "Higher quality settings for photographic content"
-  },
-  "maximum_compression": {
-    "quality": 70,
-    "method": 6,
-    "zip_compression": 9,
-    "description": "Prioritizes file size reduction over perfect quality"
-  },
-  "maximum_quality": {
-    "quality": 95,
-    "method": 6,
-    "lossless": True,
-    "zip_compression": 6,
-    "description": "Highest quality settings for minimal quality loss"
-  },
-  "manga": {
-    "quality": 70,
-    "method": 6,
-    "max_height": 2400,
-    "lossless": False,
-    "description": "Optimized for manga with text enhancement and size limits for e-readers"
-  }
-}
-
 # Global cache of loaded presets
 _PRESETS_CACHE = None
+
+def get_default_presets_path():
+    """Get the path to the default presets JSON file."""
+    # Try to find default_presets.json in the same directory as this module
+    current_dir = Path(__file__).parent
+    default_presets_path = current_dir / 'default_presets.json'
+    
+    if default_presets_path.exists():
+        return default_presets_path
+    
+    # Fallback: check if it's in the package data
+    try:
+        import pkg_resources
+        return Path(pkg_resources.resource_filename('cbxtools', 'default_presets.json'))
+    except (ImportError, FileNotFoundError):
+        pass
+    
+    # Last resort: return None, we'll use minimal defaults
+    return None
+
+def load_default_presets():
+    """Load default presets from JSON file."""
+    default_path = get_default_presets_path()
+    
+    if default_path and default_path.exists():
+        try:
+            with open(default_path, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            logging.warning(f"Could not load default presets from {default_path}: {e}")
+    
+    # Minimal fallback if we can't load the JSON file
+    return {
+        "default": {
+            "quality": 80,
+            "method": 4,
+            "preprocessing": None,
+            "zip_compression": 6,
+            "auto_greyscale": False,
+            "auto_greyscale_pixel_threshold": 16,
+            "auto_greyscale_percent_threshold": 0.01,
+            "description": "Default settings with balanced quality and performance"
+        }
+    }
 
 def ensure_preset_file():
     """Ensure the preset file exists and is initialized with defaults if needed."""
@@ -71,9 +69,10 @@ def ensure_preset_file():
     
     # If preset file doesn't exist, create it with default presets
     if not DEFAULT_PRESET_FILE.exists():
+        default_presets = load_default_presets()
         with open(DEFAULT_PRESET_FILE, 'w') as f:
-            json.dump(DEFAULT_PRESETS, f, indent=2)
-        _PRESETS_CACHE = DEFAULT_PRESETS.copy()
+            json.dump(default_presets, f, indent=2)
+        _PRESETS_CACHE = default_presets.copy()
         return DEFAULT_PRESET_FILE
     
     # Load existing presets if not already cached
@@ -83,7 +82,7 @@ def ensure_preset_file():
                 _PRESETS_CACHE = json.load(f)
         except (json.JSONDecodeError, IOError) as e:
             # If there's an error with the file, use defaults and don't overwrite
-            _PRESETS_CACHE = DEFAULT_PRESETS.copy()
+            _PRESETS_CACHE = load_default_presets()
     
     return DEFAULT_PRESET_FILE
 
@@ -242,7 +241,12 @@ def apply_preset_with_overrides(preset_name, overrides, logger=None):
         'method': 4,
         'preprocessing': None,
         'zip_compression': 6,
-        'lossless': False
+        'lossless': False,
+        'grayscale': False,
+        'auto_contrast': False,
+        'auto_greyscale': False,
+        'auto_greyscale_pixel_threshold': 16,
+        'auto_greyscale_percent_threshold': 0.01
     }
     
     for key, value in defaults.items():
@@ -264,7 +268,9 @@ def export_preset_from_args(args):
     params = {}
     possible_params = [
         'quality', 'max_width', 'max_height', 'method',
-        'preprocessing', 'zip_compression', 'lossless'
+        'preprocessing', 'zip_compression', 'lossless',
+        'grayscale', 'auto_contrast',
+        'auto_greyscale', 'auto_greyscale_pixel_threshold', 'auto_greyscale_percent_threshold'
     ]
     
     for param in possible_params:

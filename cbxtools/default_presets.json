@@ -1,0 +1,58 @@
+{
+  "default": {
+    "quality": 80,
+    "method": 4,
+    "preprocessing": null,
+    "zip_compression": 6,
+    "auto_greyscale": false,
+    "auto_greyscale_pixel_threshold": 16,
+    "auto_greyscale_percent_threshold": 0.01,
+    "description": "Default settings with balanced quality and performance"
+  },
+  "comic": {
+    "quality": 75,
+    "method": 6,
+    "preprocessing": "unsharp_mask",
+    "zip_compression": 9,
+    "max_width": 0,
+    "max_height": 0,
+    "auto_greyscale": true,
+    "auto_greyscale_pixel_threshold": 16,
+    "auto_greyscale_percent_threshold": 0.01,
+    "description": "Optimized for comic books with line art and text, includes auto-greyscale detection"
+  },
+  "photo": {
+    "quality": 85,
+    "method": 4,
+    "zip_compression": 6,
+    "auto_greyscale": false,
+    "description": "Higher quality settings for photographic content"
+  },
+  "maximum_compression": {
+    "quality": 70,
+    "method": 6,
+    "zip_compression": 9,
+    "auto_greyscale": true,
+    "auto_greyscale_pixel_threshold": 20,
+    "auto_greyscale_percent_threshold": 0.02,
+    "description": "Prioritizes file size reduction, includes aggressive auto-greyscale"
+  },
+  "maximum_quality": {
+    "quality": 95,
+    "method": 6,
+    "lossless": true,
+    "zip_compression": 6,
+    "auto_greyscale": false,
+    "description": "Highest quality settings for minimal quality loss"
+  },
+  "manga": {
+    "quality": 70,
+    "method": 6,
+    "max_height": 2400,
+    "lossless": false,
+    "auto_greyscale": true,
+    "auto_greyscale_pixel_threshold": 12,
+    "auto_greyscale_percent_threshold": 0.005,
+    "description": "Optimized for manga with aggressive greyscale detection and size limits for e-readers"
+  }
+}

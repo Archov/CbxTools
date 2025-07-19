@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Watch mode logic for CBZ/CBR to WebP converter.
+Watch mode logic for CBZ/CBR/CB7 to WebP converter.
 Reserves one thread for CBZ packaging and uses the rest for image conversion.
 Supports recursive directory watching and preserves source directory structure.
+Now supports watching for new images and image folders.
 """
 
 import time
@@ -14,9 +15,56 @@ import threading
 import sys 
 from pathlib import Path
 
-from .archives import find_comic_archives
+from .archives import find_comic_archives, find_image_files, is_image_file, is_archive_file
 from .conversion import process_single_file, cbz_packaging_worker
 from .stats_tracker import print_lifetime_stats
+
+
+def find_all_watchable_items(directory, recursive=False):
+    """Find all items that can be watched and processed (archives, images, and image folders)."""
+    items = []
+    
+    # Find archives
+    archives = find_comic_archives(directory, recursive)
+    items.extend(archives)
+    
+    # Find individual images in the root directory
+    if directory.is_dir():
+        direct_images = [f for f in directory.iterdir() if f.is_file() and is_image_file(f)]
+        items.extend(direct_images)
+    
+    # Find image folders
+    if recursive:
+        import os
+        for root, dirs, files in os.walk(directory):
+            root_path = Path(root)
+            # Skip the input directory itself (we handled direct images above)
+            if root_path == directory:
+                continue
+            
+            # Check if this directory contains images but no archives
+            has_images = any(is_image_file(Path(root) / f) for f in files)
+            has_archives = any(is_archive_file(Path(root) / f) for f in files)
+            
+            if has_images and not has_archives:
+                # This is an image-only directory
+                items.append(root_path)
+    else:
+        # For non-recursive, check immediate subdirectories
+        if directory.is_dir():
+            for item in directory.iterdir():
+                if item.is_dir():
+                    try:
+                        # Check if this subdirectory contains images but no archives
+                        has_images = any(is_image_file(f) for f in item.iterdir() if f.is_file())
+                        has_archives = any(is_archive_file(f) for f in item.iterdir() if f.is_file())
+                        
+                        if has_images and not has_archives:
+                            items.append(item)
+                    except PermissionError:
+                        continue
+    
+    return sorted(set(items))
 
 
 def _remove_empty_dirs(directory, root_dir, logger):
@@ -90,9 +138,47 @@ def cleanup_empty_directories(root_dir, logger):
     else:
         logger.info("No empty directories found")
 
+
+def detect_new_image_folders(input_dir, processed_items, recursive=False):
+    """
+    Detect new image folders that have been created or now contain enough images to process.
+    This is more complex than just checking for new files since folders can be gradually filled.
+    """
+    current_folders = set()
+    
+    if recursive:
+        import os
+        for root, dirs, files in os.walk(input_dir):
+            root_path = Path(root)
+            if root_path == input_dir:
+                continue
+                
+            # Check if this directory contains images but no archives
+            has_images = any(is_image_file(Path(root) / f) for f in files)
+            has_archives = any(is_archive_file(Path(root) / f) for f in files)
+            
+            if has_images and not has_archives:
+                current_folders.add(root_path)
+    else:
+        # Check immediate subdirectories
+        for item in input_dir.iterdir():
+            if item.is_dir():
+                try:
+                    has_images = any(is_image_file(f) for f in item.iterdir() if f.is_file())
+                    has_archives = any(is_archive_file(f) for f in item.iterdir() if f.is_file())
+                    
+                    if has_images and not has_archives:
+                        current_folders.add(item)
+                except PermissionError:
+                    continue
+    
+    # Return folders that weren't processed before
+    return current_folders - processed_items
+
+
 def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
     """
-    Watch a directory for new CBZ/CBR files and process them with optimized parameters.
+    Watch a directory for new CBZ/CBR/CB7 files, images, and image folders and process them.
     Updates lifetime statistics when files are processed.
     Supports recursive monitoring and preserves directory structure.
     
@@ -104,12 +190,13 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
         stats_tracker: Optional StatsTracker instance for lifetime stats
     """
     
-    history_file = output_dir / '.cbz_webp_processed_files.json'
+    history_file = output_dir / '.cbx_webp_processed_files.json'
     logger.info(f"Watching directory: {input_dir}")
     logger.info(f"Output directory: {output_dir}")
     logger.info(f"Checking every {args.watch_interval} seconds")
     logger.info(f"Recursive mode: {'enabled' if args.recursive else 'disabled'}")
     logger.info(f"Using history file: {history_file}")
+    logger.info("Now watching for: archives (CBZ/CBR/CB7), individual images, and image folders")
     
     # Clean up any pre-existing empty directories if delete_originals is enabled
     if args.delete_originals and args.recursive:
@@ -128,6 +215,10 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                f"max_height={args.max_height}, method={args.method}, "
                f"preprocessing={args.preprocessing}, "
                f"zip_compression={args.zip_compression}, lossless={args.lossless}")
+    if args.grayscale:
+        logger.info(f"Image transformations: grayscale={args.grayscale}")
+    if args.auto_contrast:
+        logger.info(f"Image transformations: auto_contrast={args.auto_contrast}")
     logger.info("Press Ctrl+C to stop watching")
 
     processed_files = set()
@@ -140,7 +231,7 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                 history_data = json.load(f)
                 processed_paths = history_data.get('processed_files', [])
                 processed_files = set(Path(p) for p in processed_paths)
-                logger.info(f"Loaded {len(processed_files)} previously processed files from history")
+                logger.info(f"Loaded {len(processed_files)} previously processed items from history")
         except Exception as e:
             logger.error(f"Error loading history file: {e}")
             logger.info("Starting with empty history")
@@ -154,7 +245,7 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
             }
             with open(history_file, 'w') as f:
                 json.dump(history_data, f, indent=2)
-            logger.debug(f"Saved {len(processed_files)} processed files to history")
+            logger.debug(f"Saved {len(processed_files)} processed items to history")
         except Exception as e:
             logger.error(f"Error saving history file: {e}")
 
@@ -279,28 +370,37 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                     0  # Execution time not relevant for stats tracking in watch mode
                 )
                 print_lifetime_stats(stats_tracker, logger)
-                logger.info(f"Session summary: Processed {session_files_processed} files, "
+                logger.info(f"Session summary: Processed {session_files_processed} items, "
                            f"saved {(session_original_size - session_new_size) / (1024*1024):.2f}MB")
             
-            # Check for new files to process
-            archives = find_comic_archives(input_dir, recursive=args.recursive)
-            new_archives = [a for a in archives if a not in processed_files]
+            # Check for new items to process
+            new_items = find_all_watchable_items(input_dir, recursive=args.recursive)
+            unprocessed_items = [item for item in new_items if item not in processed_files]
 
-            if new_archives:
-                logger.info(f"Found {len(new_archives)} new file(s) to process")
+            if unprocessed_items:
+                logger.info(f"Found {len(unprocessed_items)} new item(s) to process")
 
-                for archive in new_archives:
+                for item in unprocessed_items:
                     # Determine the relative path structure to preserve
-                    rel_path = archive.parent.relative_to(input_dir)
+                    if item.is_dir():
+                        # For image folders, use the folder's parent for relative path calculation
+                        rel_path = item.parent.relative_to(input_dir)
+                        item_name = item.name
+                        logger.info(f"Processing image folder: {item}")
+                    else:
+                        # For individual files (archives or images)
+                        rel_path = item.parent.relative_to(input_dir)
+                        item_name = item.name
+                        logger.info(f"Processing: {item}")
+                    
                     target_output_dir = output_dir / rel_path
                     target_output_dir.mkdir(parents=True, exist_ok=True)
                     
-                    logger.info(f"Processing: {archive}")
                     logger.debug(f"Output directory: {target_output_dir}")
 
                     success, original_size, result = process_single_file(
-                        input_file=archive,
-                        output_dir=target_output_dir,  # Use the mirrored directory structure
+                        input_file=item,
+                        output_dir=target_output_dir,
                         quality=args.quality,
                         max_width=args.max_width,
                         max_height=args.max_height,
@@ -312,16 +412,18 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                         method=args.method,
                         preprocessing=args.preprocessing,
                         zip_compresslevel=args.zip_compression,
-                        lossless=args.lossless
+                        lossless=args.lossless,
+                        grayscale=args.grayscale,
+                        auto_contrast=args.auto_contrast
                     )
 
                     if success:
                         # Handle direct result vs async result
-                        if not args.no_cbz:
-                            # Track the pending result for later statistics update
-                            pending_results[archive] = original_size
+                        if not args.no_cbz and not is_image_file(item):
+                            # Track the pending result for later statistics update (archives and folders)
+                            pending_results[item] = original_size
                         else:
-                            # Direct result for no_cbz - update stats immediately
+                            # Direct result for no_cbz or individual images - update stats immediately
                             session_files_processed += 1
                             session_original_size += original_size
                             session_new_size += result if isinstance(result, (int, float)) else 0
@@ -336,21 +438,30 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                                 )
                                 print_lifetime_stats(stats_tracker, logger)
                         
-                        processed_files.add(archive)
+                        processed_files.add(item)
                         save_history()
 
                         if args.delete_originals:
                             try:
-                                # Delete the original file
-                                archive.unlink()
-                                logger.info(f"Deleted original file: {archive}")
-                                
-                                # Check if parent directory is now empty and remove if it is
-                                _remove_empty_dirs(archive.parent, input_dir, logger)
+                                if item.is_file():
+                                    # Delete the original file
+                                    item.unlink()
+                                    logger.info(f"Deleted original file: {item}")
+                                    
+                                    # Check if parent directory is now empty and remove if it is
+                                    _remove_empty_dirs(item.parent, input_dir, logger)
+                                elif item.is_dir():
+                                    # Delete the original image folder
+                                    import shutil
+                                    shutil.rmtree(item)
+                                    logger.info(f"Deleted original folder: {item}")
+                                    
+                                    # Check if parent directory is now empty and remove if it is
+                                    _remove_empty_dirs(item.parent, input_dir, logger)
                             except Exception as e:
-                                logger.error(f"Error deleting file {archive}: {e}")
+                                logger.error(f"Error deleting {item}: {e}")
                     else:
-                        logger.error(f"Failed to process {archive}")
+                        logger.error(f"Failed to process {item}")
 
             # Sleep before next check
             time.sleep(args.watch_interval)
@@ -409,7 +520,7 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
         if stats_enabled and session_files_processed > 0:
             session_execution_time = time.time() - session_start_time
             logger.info(f"\nWatch session summary:")
-            logger.info(f"Total files processed: {session_files_processed}")
+            logger.info(f"Total items processed: {session_files_processed}")
             logger.info(f"Total session time: {session_execution_time/60:.1f} minutes")
             logger.info(f"Total space saved: {(session_original_size - session_new_size) / (1024*1024):.2f}MB")
             print_lifetime_stats(stats_tracker, logger)

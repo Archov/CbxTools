@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Image conversion functions for CBZ/CBR to WebP converter with optimized parallel processing.
+Enhanced with automatic greyscale detection and conversion.
 """
 
 import os
@@ -9,6 +10,7 @@ import tempfile
 import multiprocessing
 from pathlib import Path
 from PIL import Image
+import numpy as np
 import queue
 import threading
 import time
@@ -16,6 +18,68 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from .utils import get_file_size_formatted
 from .archives import extract_archive, create_cbz
+
+
+def analyze_image_colorfulness(img_array, pixel_threshold=16):
+    """
+    Analyze if an image is effectively greyscale by checking pixel color variation.
+    
+    Args:
+        img_array: numpy array of image data (RGB)
+        pixel_threshold: threshold for considering a pixel "colored"
+    
+    Returns:
+        tuple: (max_diff, mean_diff, colored_ratio)
+    """
+    # Calculate per-pixel difference between max and min RGB values
+    diffs = img_array.max(axis=2).astype(int) - img_array.min(axis=2).astype(int)
+    max_diff = int(diffs.max())
+    mean_diff = float(diffs.mean())
+    colored_pixels = int(np.count_nonzero(diffs > pixel_threshold))
+    total_pixels = diffs.size
+    colored_ratio = colored_pixels / total_pixels
+    
+    return max_diff, mean_diff, colored_ratio
+
+
+def should_convert_to_greyscale(img_array, pixel_threshold=16, percent_threshold=0.01):
+    """
+    Determine if an image should be converted to greyscale based on color analysis.
+    
+    Args:
+        img_array: numpy array of image data (RGB)
+        pixel_threshold: per-pixel difference threshold for "colored" pixels
+        percent_threshold: fraction of colored pixels above which image is considered colorful
+    
+    Returns:
+        bool: True if image should be converted to greyscale
+    """
+    _, _, colored_ratio = analyze_image_colorfulness(img_array, pixel_threshold)
+    return colored_ratio <= percent_threshold
+
+
+def convert_to_bw_with_contrast(img):
+    """Convert image to black and white with auto contrast enhancement.
+    
+    This implements the same workflow as your B&W.py script:
+    1. Convert to grayscale
+    2. Apply auto-contrast for enhanced B&W appearance
+    
+    Args:
+        img: PIL Image object
+        
+    Returns:
+        PIL Image object in 'L' mode with enhanced contrast
+    """
+    from PIL import ImageOps
+    
+    # First convert to black and white (grayscale)
+    bw_img = img.convert('L')
+    
+    # Then apply auto contrast to the black and white image
+    enhanced_bw_img = ImageOps.autocontrast(bw_img)
+    
+    return enhanced_bw_img
 
 
 def convert_single_image(args):
@@ -29,6 +93,11 @@ def convert_single_image(args):
     method = options.get('method', 4)
     preprocessing = options.get('preprocessing')
     lossless = options.get('lossless', False)
+    grayscale = options.get('grayscale', False)
+    auto_contrast = options.get('auto_contrast', False)
+    auto_greyscale = options.get('auto_greyscale', False)
+    auto_greyscale_pixel_threshold = options.get('auto_greyscale_pixel_threshold', 16)
+    auto_greyscale_percent_threshold = options.get('auto_greyscale_percent_threshold', 0.01)
     
     try:
         webp_path.parent.mkdir(parents=True, exist_ok=True)
@@ -36,7 +105,33 @@ def convert_single_image(args):
             # Check if image needs to be converted from CMYK or other modes
             if img.mode not in ('RGB', 'RGBA', 'L', 'LA'):
                 img = img.convert('RGB')
-                
+            
+            # Auto-greyscale detection and conversion with enhanced B&W processing
+            was_auto_converted = False
+            if auto_greyscale and img.mode in ('RGB', 'RGBA'):
+                img_array = np.array(img)
+                if should_convert_to_greyscale(
+                    img_array, 
+                    auto_greyscale_pixel_threshold, 
+                    auto_greyscale_percent_threshold
+                ):
+                    # Use enhanced B&W conversion like your B&W.py script
+                    img = convert_to_bw_with_contrast(img)
+                    was_auto_converted = True
+            
+            # Manual grayscale conversion if requested (overrides auto-detection)
+            elif grayscale and img.mode != 'L':
+                # Use enhanced B&W conversion for manual grayscale too
+                img = convert_to_bw_with_contrast(img)
+            
+            # Apply additional auto-contrast if requested (for non-grayscale images)
+            elif auto_contrast and img.mode != 'L':
+                try:
+                    from PIL import ImageOps
+                    img = ImageOps.autocontrast(img, cutoff=0.5)
+                except (ImportError, AttributeError):
+                    pass  # Skip if not available
+            
             # Resize if needed
             width, height = img.size
             scale_factor = 1.0
@@ -67,24 +162,59 @@ def convert_single_image(args):
                 except (ImportError, AttributeError):
                     pass  # Skip if not available
 
-            # WebP parameters
-            webp_options = {
-                'quality': quality,
-                'method': method,
-                'lossless': lossless,
-            }
-            
-            # Standard saving with specified options
-            img.save(webp_path, 'WEBP', **webp_options)
+            # For B&W images, create intermediate PNG for better quality pipeline
+            # This mimics your B&W.py script workflow: Source -> B&W PNG -> WebP
+            if img.mode == 'L' and (was_auto_converted or grayscale):
+                import tempfile
+                import os
+                
+                # Create temporary PNG file for B&W processing
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_png:
+                    tmp_png_path = tmp_png.name
+                
+                try:
+                    # Save as PNG first (like your B&W.py script)
+                    img.save(tmp_png_path, 'PNG')
+                    
+                    # Reload from PNG for WebP conversion
+                    with Image.open(tmp_png_path) as png_img:
+                        # WebP parameters
+                        webp_options = {
+                            'quality': quality,
+                            'method': method,
+                            'lossless': lossless,
+                        }
+                        
+                        # Convert PNG to WebP
+                        png_img.save(webp_path, 'WEBP', **webp_options)
+                finally:
+                    # Clean up temporary PNG file
+                    try:
+                        os.unlink(tmp_png_path)
+                    except OSError:
+                        pass  # Ignore cleanup errors
+            else:
+                # Standard conversion for color images
+                # WebP parameters
+                webp_options = {
+                    'quality': quality,
+                    'method': method,
+                    'lossless': lossless,
+                }
+                
+                # Standard saving with specified options
+                img.save(webp_path, 'WEBP', **webp_options)
 
-        return (img_path, webp_path, True, None)
+        return (img_path, webp_path, True, None, was_auto_converted)
     except Exception as e:
-        return (img_path, webp_path, False, str(e))
+        return (img_path, webp_path, False, str(e), False)
 
 
 def convert_to_webp(extract_dir, output_dir, quality, max_width=0, max_height=0, 
                num_threads=0, method=4, preprocessing=None, 
-               lossless=False, logger=None):
+               lossless=False, logger=None, grayscale=False, auto_contrast=False,
+               auto_greyscale=False, auto_greyscale_pixel_threshold=16, 
+               auto_greyscale_percent_threshold=0.01):
     """Convert all images in extract_dir to WebP format and copy all non-image files to output_dir."""
     import os
     import shutil
@@ -125,8 +255,21 @@ def convert_to_webp(extract_dir, output_dir, quality, max_width=0, max_height=0,
         num_threads = multiprocessing.cpu_count()
 
     logger.info(f"Converting {len(image_files)} images to WebP using {num_threads} threads...")
-    logger.info(f"WebP parameters: quality={quality}, method={method}, "
-               f"preprocessing={preprocessing}, lossless={lossless}")
+    
+    # Add new parameters to logging
+    additional_params = []
+    if grayscale:
+        additional_params.append("grayscale=True (enhanced B&W conversion)")
+    if auto_contrast:
+        additional_params.append("auto_contrast=True")
+    if auto_greyscale:
+        additional_params.append(f"auto_greyscale=True (enhanced B&W, pixel_threshold={auto_greyscale_pixel_threshold}, percent_threshold={auto_greyscale_percent_threshold})")
+    
+    params_str = f"quality={quality}, method={method}, preprocessing={preprocessing}, lossless={lossless}"
+    if additional_params:
+        params_str += ", " + ", ".join(additional_params)
+    
+    logger.info(f"WebP parameters: {params_str}")
 
     # Package options for each image
     conversion_args = []
@@ -141,20 +284,32 @@ def convert_to_webp(extract_dir, output_dir, quality, max_width=0, max_height=0,
             'max_height': max_height,
             'method': method,
             'preprocessing': preprocessing,
-            'lossless': lossless
+            'lossless': lossless,
+            'grayscale': grayscale,
+            'auto_contrast': auto_contrast,
+            'auto_greyscale': auto_greyscale,
+            'auto_greyscale_pixel_threshold': auto_greyscale_pixel_threshold,
+            'auto_greyscale_percent_threshold': auto_greyscale_percent_threshold
         }
         
         conversion_args.append((img_path, webp_path, options))
 
-    # Rest of the function remains the same
+    # Process images with enhanced reporting
     success_count = 0
     total_orig_size = 0
     total_webp_size = 0
+    auto_converted_count = 0
     
     with ProcessPoolExecutor(max_workers=num_threads) as executor:
         futures = [executor.submit(convert_single_image, args) for args in conversion_args]
         for i, fut in enumerate(as_completed(futures), 1):
-            img_path, webp_path, success, error = fut.result()
+            result = fut.result()
+            if len(result) == 5:  # Enhanced result with auto-conversion info
+                img_path, webp_path, success, error, was_auto_converted = result
+            else:  # Backward compatibility
+                img_path, webp_path, success, error = result
+                was_auto_converted = False
+                
             if success:
                 # Calculate compression ratio for reporting
                 try:
@@ -166,23 +321,37 @@ def convert_to_webp(extract_dir, output_dir, quality, max_width=0, max_height=0,
                     savings_pct = (1 - webp_size / orig_size) * 100 if orig_size > 0 else 0
                     
                     success_count += 1
+                    if was_auto_converted:
+                        auto_converted_count += 1
+                    
+                    # Enhanced conversion notes
+                    conversion_note = ""
+                    if was_auto_converted:
+                        conversion_note = " [auto→B&W+contrast]"
+                    elif 'grayscale' in str(options) and options.get('grayscale', False):
+                        conversion_note = " [manual→B&W+contrast]"
+                    
                     logger.debug(
-                        f"[{i}/{len(image_files)}] Converted: {img_path.name} -> {webp_path.name} "
+                        f"[{i}/{len(image_files)}] Converted: {img_path.name} -> {webp_path.name}{conversion_note} "
                         f"({savings_pct:.1f}% smaller, {orig_size/1024:.1f}KB → {webp_size/1024:.1f}KB)"
                     )
                 except Exception as e:
                     logger.debug(f"[{i}/{len(image_files)}] Converted: {img_path.name} -> {webp_path.name}")
                     logger.debug(f"Error calculating file size: {e}")
                     success_count += 1
+                    if was_auto_converted:
+                        auto_converted_count += 1
             else:
                 logger.error(f"Error converting {img_path.name}: {error}")
 
-    # Report overall compression ratio
+    # Report overall compression ratio and auto-conversion stats
     if total_orig_size > 0:
         overall_savings = (1 - total_webp_size / total_orig_size) * 100
         logger.info(f"Successfully converted {success_count}/{len(image_files)} images.")
         logger.info(f"Overall image size reduction: {overall_savings:.1f}% " +
                    f"({total_orig_size / (1024*1024):.2f}MB → {total_webp_size / (1024*1024):.2f}MB)")
+        if auto_greyscale and auto_converted_count > 0:
+            logger.info(f"Auto-converted {auto_converted_count} images to enhanced B&W (greyscale + auto-contrast) based on color analysis")
     
     return output_dir
 
@@ -235,7 +404,12 @@ def process_single_file(
     method=6,              # Use higher compression method by default
     preprocessing=None,    # Optional preprocessing
     zip_compresslevel=9,   # Maximum ZIP compression by default
-    lossless=False        # Use lossy by default
+    lossless=False,        # Use lossy by default
+    grayscale=False,       # Convert to grayscale
+    auto_contrast=False,   # Apply auto-contrast
+    auto_greyscale=False,  # Auto-detect and convert near-greyscale images
+    auto_greyscale_pixel_threshold=16,     # Pixel difference threshold for auto-greyscale
+    auto_greyscale_percent_threshold=0.01  # Percentage threshold for auto-greyscale
 ):
     """Process a single CBZ/CBR file with optimized parameters from presets."""
     from .utils import get_file_size_formatted
@@ -264,7 +438,12 @@ def process_single_file(
                 method,
                 preprocessing,
                 lossless,
-                logger
+                logger,
+                grayscale,
+                auto_contrast,
+                auto_greyscale,
+                auto_greyscale_pixel_threshold,
+                auto_greyscale_percent_threshold
             )
 
             if not no_cbz:
@@ -312,6 +491,8 @@ def process_single_file(
         except Exception as e:
             logger.error(f"Error processing {input_file}: {e}")
             return False, orig_size_bytes, 0
+
+
 def process_archive_files(archives, output_dir, args, logger):
     """Process multiple archives with pipelining for improved performance."""
     total_original_size = 0
@@ -323,11 +504,22 @@ def process_archive_files(archives, output_dir, args, logger):
     preprocessing = args.preprocessing
     zip_compression = args.zip_compression
     lossless = args.lossless
+    grayscale = args.grayscale
+    auto_contrast = args.auto_contrast
+    auto_greyscale = getattr(args, 'auto_greyscale', False)
+    auto_greyscale_pixel_threshold = getattr(args, 'auto_greyscale_pixel_threshold', 16)
+    auto_greyscale_percent_threshold = getattr(args, 'auto_greyscale_percent_threshold', 0.01)
     
     # Report which parameters we're using
-    logger.info(f"Processing with parameters: method={method}, "
-               f"preprocessing={preprocessing}, zip_compression={zip_compression}, "
-               f"lossless={lossless}")
+    params_str = f"method={method}, preprocessing={preprocessing}, zip_compression={zip_compression}, lossless={lossless}"
+    if grayscale:
+        params_str += f", grayscale={grayscale}"
+    if auto_contrast:
+        params_str += f", auto_contrast={auto_contrast}"
+    if auto_greyscale:
+        params_str += f", auto_greyscale={auto_greyscale} (pixel_threshold={auto_greyscale_pixel_threshold}, percent_threshold={auto_greyscale_percent_threshold})"
+    
+    logger.info(f"Processing with parameters: {params_str}")
 
     if not args.no_cbz and len(archives) > 1:
         logger.info(f"Processing {len(archives)} comics with pipelined approach...")
@@ -360,7 +552,12 @@ def process_archive_files(archives, output_dir, args, logger):
                 method=method,
                 preprocessing=preprocessing,
                 zip_compresslevel=zip_compression,
-                lossless=lossless
+                lossless=lossless,
+                grayscale=grayscale,
+                auto_contrast=auto_contrast,
+                auto_greyscale=auto_greyscale,
+                auto_greyscale_pixel_threshold=auto_greyscale_pixel_threshold,
+                auto_greyscale_percent_threshold=auto_greyscale_percent_threshold
             )
             if success:
                 success_count += 1
@@ -395,7 +592,12 @@ def process_archive_files(archives, output_dir, args, logger):
                 method=method,
                 preprocessing=preprocessing,
                 zip_compresslevel=zip_compression,
-                lossless=lossless
+                lossless=lossless,
+                grayscale=grayscale,
+                auto_contrast=auto_contrast,
+                auto_greyscale=auto_greyscale,
+                auto_greyscale_pixel_threshold=auto_greyscale_pixel_threshold,
+                auto_greyscale_percent_threshold=auto_greyscale_percent_threshold
             )
             if success:
                 success_count += 1

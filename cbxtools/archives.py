@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-Archive handling functions for CBZ/CBR to WebP converter.
+Archive handling functions for CBZ/CBR/CB7 to WebP converter.
+Now supports 7z archives and individual images/folders.
 """
 
 import os
 import zipfile
 import patoolib
+import py7zr
 from pathlib import Path
 
 
 def extract_archive(archive_path, extract_dir, logger):
-    """Extract CBZ/CBR archive to temporary directory."""
+    """Extract CBZ/CBR/CB7 archive to temporary directory."""
     file_ext = archive_path.suffix.lower()
     logger.info(f"Extracting {archive_path} to {extract_dir}...")
 
@@ -19,6 +21,9 @@ def extract_archive(archive_path, extract_dir, logger):
             zip_ref.extractall(extract_dir)
     elif file_ext in ('.cbr', '.rar'):
         patoolib.extract_archive(str(archive_path), outdir=str(extract_dir))
+    elif file_ext in ('.cb7', '.7z'):
+        with py7zr.SevenZipFile(archive_path, mode='r') as z:
+            z.extractall(path=extract_dir)
     else:
         raise ValueError(f"Unsupported archive format: {file_ext}")
 
@@ -66,8 +71,8 @@ def create_cbz(source_dir, output_file, logger, compresslevel=9):
 
 
 def find_comic_archives(directory, recursive=False):
-    """Find all CBZ/CBR (or ZIP/RAR) files in the given directory."""
-    valid_extensions = {'.cbz', '.cbr', '.zip', '.rar'}
+    """Find all CBZ/CBR/CB7 (or ZIP/RAR/7Z) files in the given directory."""
+    valid_extensions = {'.cbz', '.cbr', '.cb7', '.zip', '.rar', '.7z'}
     archives = []
 
     if recursive:
@@ -82,3 +87,34 @@ def find_comic_archives(directory, recursive=False):
                 archives.append(file_path)
 
     return sorted(archives)
+
+
+def find_image_files(directory, recursive=False):
+    """Find all image files in the given directory."""
+    image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.tga', '.ico'}
+    images = []
+
+    if recursive:
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if Path(file).suffix.lower() in image_extensions:
+                    images.append(Path(root) / file)
+    else:
+        for file in os.listdir(directory):
+            file_path = Path(directory) / file
+            if file_path.is_file() and file_path.suffix.lower() in image_extensions:
+                images.append(file_path)
+
+    return sorted(images)
+
+
+def is_image_file(file_path):
+    """Check if a file is an image based on its extension."""
+    image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.tga', '.ico'}
+    return Path(file_path).suffix.lower() in image_extensions
+
+
+def is_archive_file(file_path):
+    """Check if a file is a supported archive based on its extension."""
+    archive_extensions = {'.cbz', '.cbr', '.cb7', '.zip', '.rar', '.7z'}
+    return Path(file_path).suffix.lower() in archive_extensions
