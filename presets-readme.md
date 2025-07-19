@@ -23,11 +23,11 @@ cbxtools input.cbz output/ --preset comic --quality 90
 The system comes with several built-in presets:
 
 - **default**: Balanced settings for most use cases
-- **comic**: Optimized for comic books with text and line art
+- **comic**: Optimized for comic books with line art and text
 - **photo**: Higher quality for photographic content
 - **maximum_compression**: Prioritizes file size reduction
-- **maximum_quality**: Highest quality with lossless compression
-- **phone_friendly**: Sized for mobile devices
+- **maximum_quality**: Highest quality with optional lossless compression
+- **manga**: Optimized for manga content with aggressive greyscale detection
 
 ## Managing Presets
 
