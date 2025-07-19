@@ -4,15 +4,17 @@ A powerful tool for converting CBZ/CBR comic archives to WebP format, focusing o
 
 ## Features
 
-- Convert CBZ/CBR comic archives to WebP-based CBZ files
+- Convert CBZ, CBR and CB7 archives (ZIP/RAR/7z) to WebP-based CBZ files
+- Process individual images and entire folders
 - Preserve metadata and all non-image files from the original archives
-- Significantly reduce file sizes (typically 30-70%)
-- Multi-threaded processing for fast conversion
-- Customizable WebP compression parameters
-- Support for presets to quickly apply optimized settings
-- Directory watching mode to automatically process new files
-- Optional automatic greyscale detection (works in watch mode)
-- Detailed statistics tracking for optimization results
+- Multi-threaded conversion with optional asynchronous packaging
+- Customizable WebP compression parameters and preprocessing filters
+- Manual grayscale and auto-contrast options
+- Optional automatic greyscale detection with configurable thresholds (works in watch mode)
+- Directory watching mode to automatically process new archives, images and image folders
+- Built-in dependency checker with optional automatic installation
+- Persistent lifetime statistics tracking and detailed reports
+- Debug utilities for analysing greyscale detection
 - Support for batch processing
 
 ## Installation
@@ -101,15 +103,11 @@ cbxtools input_path output_dir [options]
 CBXTools includes several built-in presets optimized for different types of content:
 
 - `default`: Balanced settings for most comic types
-- `comic`: Optimized for comic books with text and line art
-- `photo`: Better quality for photorealistic images
+- `comic`: Optimized for comic books with line art and text
+- `photo`: Higher quality for photographic images
 - `maximum_compression`: Maximum compression (lower quality)
-- `maximum_quality`: Highest quality with lossless compression
-- `phone_friendly`: Sized for mobile devices
-- `manga`: Optimized for manga content
-- `e_ink`: Optimized for e-ink readers with enhanced contrast
-- `fast_conversion`: Fastest processing with acceptable quality
-- `tiny`: Maximum compression with size limits
+- `maximum_quality`: Highest quality with optional lossless compression
+- `manga`: Optimized for manga content with aggressive greyscale detection
 
 You can view available presets with:
 
