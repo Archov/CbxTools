@@ -8,6 +8,8 @@ import sys
 import time
 import argparse
 import subprocess
+import shutil
+import os
 from pathlib import Path
 
 from .utils import setup_logging, remove_empty_dirs, log_effective_parameters
@@ -329,6 +331,12 @@ def parse_arguments():
                         help='Test multiple threshold combinations on a single image and exit')
     debug_group.add_argument('--debug-analyze-directory', type=str, metavar='DIRECTORY_PATH',
                         help='Analyze all images in directory with current thresholds and exit')
+
+    scan_group = parser.add_argument_group('Near Greyscale Scan')
+    scan_group.add_argument('--scan-near-greyscale', choices=['dryrun','move','process'],
+                        help='Scan archives for near-greyscale images and take action')
+    scan_group.add_argument('--scan-output', type=str, default=None,
+                        help='Output file for dryrun or destination directory for move mode')
     
     # Dependency management options
     dep_group = parser.add_argument_group('Dependency Management Options')
@@ -358,8 +366,19 @@ def parse_arguments():
     if not args.list_presets and args.input_path is None and not args.import_preset and not debug_operations and not dependency_operations and not args.stats_only:
         parser.error("input_path is required unless --list-presets, --import-preset, --stats-only, dependency operations, or debug operations are specified")
     
-    if not args.list_presets and not args.stats_only and args.input_path is not None and args.output_dir is None and not args.import_preset and not debug_operations and not dependency_operations:
-        parser.error("output_dir is required unless --list-presets, --stats-only, --import-preset, dependency operations, or debug operations are specified")
+    if (
+        not args.list_presets
+        and not args.stats_only
+        and args.input_path is not None
+        and args.output_dir is None
+        and not args.import_preset
+        and not debug_operations
+        and not dependency_operations
+        and not args.scan_near_greyscale
+    ):
+        parser.error(
+            "output_dir is required unless --list-presets, --stats-only, --import-preset, dependency operations, debug operations, or --scan-near-greyscale is specified"
+        )
     
     # Handle negation flags
     if args.no_lossless:
@@ -552,6 +571,62 @@ def handle_debug_operations(args, logger):
     
     # No debug operations requested
     return None
+
+
+def handle_scan_near_greyscale(input_path, args, logger):
+    """Scan archives for near greyscale images and take the requested action."""
+    from .near_greyscale_scan import scan_directory_for_near_greyscale
+    pixel_threshold = getattr(args, 'auto_greyscale_pixel_threshold', 16)
+    percent_threshold = getattr(args, 'auto_greyscale_percent_threshold', 0.01)
+    threads = args.threads if args.threads != 0 else os.cpu_count() or 1
+
+    results = scan_directory_for_near_greyscale(
+        input_path,
+        args.recursive,
+        pixel_threshold,
+        percent_threshold,
+        threads,
+        logger,
+    )
+
+    if args.scan_near_greyscale == 'dryrun':
+        list_file = Path(args.scan_output or 'near_greyscale_list.txt')
+        with open(list_file, 'w') as f:
+            for a, near, total in results:
+                f.write(f"{a}\t{near}/{total}\n")
+        logger.info(f"Listed {len(results)} archives to {list_file}")
+        return 0
+
+    if args.scan_near_greyscale == 'move':
+        if not args.scan_output:
+            logger.error("--scan-output is required for move mode")
+            return 1
+        dest_dir = Path(args.scan_output).resolve()
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        moved = 0
+        for a, near, total in results:
+            target = dest_dir / a.name
+            shutil.move(str(a), target)
+            logger.info(f"Moved {a} ({near}/{total}) -> {target}")
+            moved += 1
+        logger.info(f"Moved {moved} archives")
+        return 0
+
+    if args.scan_near_greyscale == 'process':
+        processed = 0
+        for a, near, total in results:
+            success, _, _ = process_single_archive_file(a, a.parent, args, logger)
+            if success and a.suffix.lower() != '.cbz':
+                try:
+                    a.unlink()
+                except Exception as e:
+                    logger.error(f"Failed to delete {a}: {e}")
+            if success:
+                processed += 1
+        logger.info(f"Processed {processed} archives")
+        return 0 if processed == len(results) else 1
+
+    return 0
 
 
 def handle_watch_mode(input_path, output_dir, args, logger, stats_tracker):
@@ -772,6 +847,9 @@ def main():
     
     # Log the effective parameters being used
     log_effective_parameters(args, logger, args.recursive)
+
+    if args.scan_near_greyscale:
+        return handle_scan_near_greyscale(input_path, args, logger)
     
     # Handle watch mode
     if args.watch:

@@ -23,6 +23,7 @@ A powerful tool for converting CBZ/CBR comic archives to WebP format, focusing o
 - Built-in dependency checker with optional automatic installation
 - Persistent lifetime statistics tracking and detailed reports
 - Debug utilities for analysing greyscale detection
+- Near greyscale scan mode to identify archives with mostly greyscale pages
 
 
 ## Installation
@@ -98,6 +99,12 @@ cbxtools input_path output_dir [options]
 - `--stats-file PATH`: Path to stats file (default: ~/.cbx-tools-stats.json)
 - `--no-stats`: Do not update or display lifetime statistics
 - `--stats-only`: Display lifetime statistics and exit
+
+### Near Greyscale Scan Options
+
+- `--scan-near-greyscale {dryrun,move,process}`: Scan archives for near-grey images and optionally move or process them
+- `--scan-output PATH`: Output file for dryrun or destination directory for move mode
+Scanning respects the `--threads` option for parallel processing.
 
 ### Watch Mode Options
 
