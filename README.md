@@ -11,6 +11,7 @@ A powerful tool for converting CBZ/CBR comic archives to WebP format, focusing o
 - Customizable WebP compression parameters
 - Support for presets to quickly apply optimized settings
 - Directory watching mode to automatically process new files
+- Optional automatic greyscale detection (works in watch mode)
 - Detailed statistics tracking for optimization results
 - Support for batch processing
 

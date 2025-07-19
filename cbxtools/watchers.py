@@ -4,6 +4,7 @@ Watch mode logic for CBZ/CBR/CB7 to WebP converter.
 Reserves one thread for CBZ packaging and uses the rest for image conversion.
 Supports recursive directory watching and preserves source directory structure.
 Now supports watching for new images and image folders.
+Automatic greyscale detection is applied when enabled.
 """
 
 import time
@@ -219,6 +220,13 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
         logger.info(f"Image transformations: grayscale={args.grayscale}")
     if args.auto_contrast:
         logger.info(f"Image transformations: auto_contrast={args.auto_contrast}")
+    if getattr(args, 'auto_greyscale', False):
+        pixel_thresh = getattr(args, 'auto_greyscale_pixel_threshold', 16)
+        percent_thresh = getattr(args, 'auto_greyscale_percent_threshold', 0.01)
+        logger.info(
+            "Image transformations: auto_greyscale=%s (pixel_threshold=%s, percent_threshold=%s)"
+            % (args.auto_greyscale, pixel_thresh, percent_thresh)
+        )
     logger.info("Press Ctrl+C to stop watching")
 
     processed_files = set()
@@ -414,7 +422,18 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                         zip_compresslevel=args.zip_compression,
                         lossless=args.lossless,
                         grayscale=args.grayscale,
-                        auto_contrast=args.auto_contrast
+                        auto_contrast=args.auto_contrast,
+                        auto_greyscale=getattr(args, 'auto_greyscale', False),
+                        auto_greyscale_pixel_threshold=getattr(
+                            args,
+                            'auto_greyscale_pixel_threshold',
+                            16,
+                        ),
+                        auto_greyscale_percent_threshold=getattr(
+                            args,
+                            'auto_greyscale_percent_threshold',
+                            0.01,
+                        ),
                     )
 
                     if success:
