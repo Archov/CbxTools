@@ -8,14 +8,15 @@ A powerful tool for converting CBZ/CBR comic archives to WebP format, focusing o
 - Process individual images and entire folders
 - Preserve metadata and all non-image files from the original archives
 - Multi-threaded conversion with optional asynchronous packaging
+- Support for batch processing
 - Customizable WebP compression parameters and preprocessing filters
 - Manual grayscale and auto-contrast options
-- Optional automatic greyscale detection with configurable thresholds (works in watch mode)
+- Optional automatic greyscale detection with configurable thresholds
 - Directory watching mode to automatically process new archives, images and image folders
 - Built-in dependency checker with optional automatic installation
 - Persistent lifetime statistics tracking and detailed reports
 - Debug utilities for analysing greyscale detection
-- Support for batch processing
+
 
 ## Installation
 
