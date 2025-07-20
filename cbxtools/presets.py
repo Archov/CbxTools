@@ -41,7 +41,7 @@ def load_default_presets():
     
     if default_path and default_path.exists():
         try:
-            with open(default_path, 'r') as f:
+            with open(default_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except (json.JSONDecodeError, IOError) as e:
             logging.warning(f"Could not load default presets from {default_path}: {e}")
@@ -70,7 +70,7 @@ def ensure_preset_file():
     # If preset file doesn't exist, create it with default presets
     if not DEFAULT_PRESET_FILE.exists():
         default_presets = load_default_presets()
-        with open(DEFAULT_PRESET_FILE, 'w') as f:
+        with open(DEFAULT_PRESET_FILE, 'w', encoding='utf-8') as f:
             json.dump(default_presets, f, indent=2)
         _PRESETS_CACHE = default_presets.copy()
         return DEFAULT_PRESET_FILE
@@ -78,7 +78,7 @@ def ensure_preset_file():
     # Load existing presets if not already cached
     if _PRESETS_CACHE is None:
         try:
-            with open(DEFAULT_PRESET_FILE, 'r') as f:
+            with open(DEFAULT_PRESET_FILE, 'r', encoding='utf-8') as f:
                 _PRESETS_CACHE = json.load(f)
         except (json.JSONDecodeError, IOError) as e:
             # If there's an error with the file, use defaults and don't overwrite
@@ -120,7 +120,7 @@ def save_preset(name, parameters, overwrite=False, logger=None):
         _PRESETS_CACHE[name] = parameters
         
         # Write updated cache to file
-        with open(DEFAULT_PRESET_FILE, 'w') as f:
+        with open(DEFAULT_PRESET_FILE, 'w', encoding='utf-8') as f:
             json.dump(_PRESETS_CACHE, f, indent=2)
             
         if logger:
@@ -155,7 +155,7 @@ def import_presets_from_file(file_path, overwrite=False, logger=None):
     
     try:
         # Load presets from the file
-        with open(file_path, 'r') as f:
+        with open(file_path, 'r', encoding='utf-8') as f:
             imported_presets = json.load(f)
             
         if not isinstance(imported_presets, dict):
@@ -173,7 +173,7 @@ def import_presets_from_file(file_path, overwrite=False, logger=None):
                 import_count += 1
                 
         # Save merged presets
-        with open(DEFAULT_PRESET_FILE, 'w') as f:
+        with open(DEFAULT_PRESET_FILE, 'w', encoding='utf-8') as f:
             json.dump(_PRESETS_CACHE, f, indent=2)
             
         if logger:

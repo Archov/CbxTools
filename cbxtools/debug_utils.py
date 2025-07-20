@@ -102,7 +102,7 @@ def save_debug_analysis(image_path, analysis, output_dir, logger):
     }
     
     try:
-        with open(debug_file, 'w') as f:
+        with open(debug_file, 'w', encoding='utf-8') as f:
             json.dump(debug_data, f, indent=2)
         logger.debug(f"Saved debug analysis to {debug_file}")
     except Exception as e:
@@ -336,7 +336,7 @@ def debug_archive_greyscale(archive_path, output_dir=None,
                                 'analysis': analysis
                             }
                             
-                            with open(img_debug_file, 'w') as f:
+                            with open(img_debug_file, 'w', encoding='utf-8') as f:
                                 json.dump(debug_data, f, indent=2)
                             
                             # Create visualization for this image
@@ -417,7 +417,7 @@ def debug_archive_greyscale(archive_path, output_dir=None,
                 }
                 
                 summary_file = archive_debug_dir / 'archive_analysis_summary.json'
-                with open(summary_file, 'w') as f:
+                with open(summary_file, 'w', encoding='utf-8') as f:
                     json.dump(summary, f, indent=2)
                 
                 logger.info(f"\nDetailed analysis saved to: {archive_debug_dir}")
@@ -614,7 +614,7 @@ def test_threshold_ranges(image_path, output_dir=None, logger=None):
     
     # Save results
     results_file = output_dir / f"{image_path.stem}_threshold_test_results.json"
-    with open(results_file, 'w') as f:
+    with open(results_file, 'w', encoding='utf-8') as f:
         json.dump(results, f, indent=2)
     
     logger.info(f"\nDetailed results saved to: {results_file}")
@@ -778,7 +778,7 @@ def analyze_directory_for_auto_greyscale(directory_path, pixel_threshold=16,
         
         summary_file = directory_path / 'debug_batch' / 'batch_analysis_summary.json'
         summary_file.parent.mkdir(exist_ok=True)
-        with open(summary_file, 'w') as f:
+        with open(summary_file, 'w', encoding='utf-8') as f:
             json.dump(summary, f, indent=2)
         
         logger.info(f"Detailed summary saved to: {summary_file}")
