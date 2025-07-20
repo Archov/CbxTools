@@ -103,7 +103,7 @@ cbxtools input_path output_dir [options]
 ### Near Greyscale Scan Options
 
 - `--scan-near-greyscale {dryrun,move,process}`: Scan archives for near-grey images and optionally move or process them
-- `--scan-output PATH`: Output file for dryrun or destination directory for move mode
+- `--scan-output PATH`: Output file for dryrun or destination directory for move mode. If PATH is a directory in dryrun mode, `near_greyscale_list.txt` will be created in that directory. When omitted, the list is written to `near_greyscale_list.txt` in the current directory.
 Scanning respects the `--threads` option for parallel processing.
 
 ### Watch Mode Options
@@ -161,6 +161,14 @@ Show lifetime statistics:
 ```bash
 cbxtools --stats-only
 ```
+
+Scan a directory for near-greyscale archives without moving them:
+
+```bash
+cbxtools --scan-near-greyscale dryrun --scan-output "D:\Manga Backup" D:\Manga
+```
+
+This creates `near_greyscale_list.txt` inside `D:\Manga Backup`.
 
 ## Metadata Preservation
 
