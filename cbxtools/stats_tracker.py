@@ -24,7 +24,7 @@ class StatsTracker:
     def _load_stats(self):
         if self.stats_file.exists():
             try:
-                with open(self.stats_file, 'r') as f:
+                with open(self.stats_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
             except (json.JSONDecodeError, IOError) as e:
                 print(f"Warning: Could not load stats file: {e}", file=sys.stderr)
@@ -47,7 +47,7 @@ class StatsTracker:
     def save_stats(self):
         try:
             self.stats_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.stats_file, 'w') as f:
+            with open(self.stats_file, 'w', encoding='utf-8') as f:
                 json.dump(self.stats, f, indent=2)
         except IOError as e:
             print(f"Warning: Could not save stats file: {e}", file=sys.stderr)

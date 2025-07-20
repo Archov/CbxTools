@@ -8,6 +8,7 @@ multi-threaded execution.
 from pathlib import Path
 import os
 import tempfile
+import datetime
 
 from PIL import Image
 import numpy as np
@@ -67,11 +68,29 @@ def scan_directory_for_near_greyscale(
     percent_threshold=0.01,
     threads=1,
     logger=None,
+    output_file=None,
 ):
-    """Return a list of ``(archive, near_count, total_count)`` tuples."""
+    """Return a list of ``(archive, near_count, total_count)`` tuples.
+
+    If ``output_file`` is provided, a new file with a timestamp suffix will be
+    created at the start of the scan and results will be appended to it as they
+    are discovered.
+    """
     directory = Path(directory)
     archives = find_comic_archives(directory, recursive)
     results = []
+
+    output_path = None
+    out_handle = None
+    if output_file:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = Path(output_file)
+        output_path = output_path.with_name(
+            f"{output_path.stem}_{timestamp}{output_path.suffix}"
+        )
+        out_handle = open(output_path, "w", encoding="utf-8")
+        out_handle.write("archive\tnear/total\n")
+
 
     max_workers = threads or 1
 
@@ -89,5 +108,11 @@ def scan_directory_for_near_greyscale(
             archive, contains, near, total = future.result()
             if contains:
                 results.append((archive, near, total))
+                if out_handle:
+                    out_handle.write(f"{archive}\t{near}/{total}\n")
+                    out_handle.flush()
 
-    return results
+    if out_handle:
+        out_handle.close()
+
+    return results, output_path
