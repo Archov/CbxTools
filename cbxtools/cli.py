@@ -580,15 +580,7 @@ def handle_scan_near_greyscale(input_path, args, logger):
     percent_threshold = getattr(args, 'auto_greyscale_percent_threshold', 0.01)
     threads = args.threads if args.threads != 0 else os.cpu_count() or 1
 
-    results = scan_directory_for_near_greyscale(
-        input_path,
-        args.recursive,
-        pixel_threshold,
-        percent_threshold,
-        threads,
-        logger,
-    )
-
+    list_file = None
     if args.scan_near_greyscale == 'dryrun':
         if args.scan_output:
             candidate = Path(args.scan_output)
@@ -598,10 +590,22 @@ def handle_scan_near_greyscale(input_path, args, logger):
                 list_file = candidate
         else:
             list_file = Path('near_greyscale_list.txt')
-        with open(list_file, 'w') as f:
-            for a, near, total in results:
-                f.write(f"{a}\t{near}/{total}\n")
-        logger.info(f"Listed {len(results)} archives to {list_file}")
+
+    results, output_path = scan_directory_for_near_greyscale(
+        input_path,
+        args.recursive,
+        pixel_threshold,
+        percent_threshold,
+        threads,
+        logger,
+        list_file,
+    )
+
+    if args.scan_near_greyscale == 'dryrun':
+        for a, near, total in results:
+            logger.info(f"{a}\t{near}/{total}")
+        if output_path:
+            logger.info(f"Listed {len(results)} archives to {output_path}")
         return 0
 
     if args.scan_near_greyscale == 'move':

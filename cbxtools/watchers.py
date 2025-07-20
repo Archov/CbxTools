@@ -235,7 +235,7 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
     # Load history file if it exists
     if history_file.exists():
         try:
-            with open(history_file, 'r') as f:
+            with open(history_file, 'r', encoding='utf-8') as f:
                 history_data = json.load(f)
                 processed_paths = history_data.get('processed_files', [])
                 processed_files = set(Path(p) for p in processed_paths)
@@ -251,7 +251,7 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                 'processed_files': [str(p) for p in processed_files],
                 'last_updated': datetime.datetime.now().isoformat()
             }
-            with open(history_file, 'w') as f:
+            with open(history_file, 'w', encoding='utf-8') as f:
                 json.dump(history_data, f, indent=2)
             logger.debug(f"Saved {len(processed_files)} processed items to history")
         except Exception as e:
