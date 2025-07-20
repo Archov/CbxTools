@@ -590,7 +590,14 @@ def handle_scan_near_greyscale(input_path, args, logger):
     )
 
     if args.scan_near_greyscale == 'dryrun':
-        list_file = Path(args.scan_output or 'near_greyscale_list.txt')
+        if args.scan_output:
+            candidate = Path(args.scan_output)
+            if candidate.exists() and candidate.is_dir():
+                list_file = candidate / 'near_greyscale_list.txt'
+            else:
+                list_file = candidate
+        else:
+            list_file = Path('near_greyscale_list.txt')
         with open(list_file, 'w') as f:
             for a, near, total in results:
                 f.write(f"{a}\t{near}/{total}\n")
