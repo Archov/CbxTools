@@ -1,0 +1,29 @@
+{
+  "archive_file": "D:\\work or something\\watch\\Soul Eater, Vol.01 - 053 (1).cbz",
+  "image_file": "Soul Eater, Vol.01 - 053.webp",
+  "timestamp": "2025-07-21 12:35:39",
+  "analysis": {
+    "max_diff": 1,
+    "mean_diff": 0.025021399176954732,
+    "std_diff": 0.15619004052814067,
+    "median_diff": 0.0,
+    "percentile_95": 0.0,
+    "percentile_99": 1.0,
+    "colored_pixels": 0,
+    "very_colored_pixels": 0,
+    "slightly_colored_pixels": 0,
+    "total_pixels": 1215000,
+    "colored_ratio": 0.0,
+    "very_colored_ratio": 0.0,
+    "slightly_colored_ratio": 0.0,
+    "pixel_threshold_used": 16,
+    "image_shape": [
+      1350,
+      900,
+      3
+    ],
+    "decision": true,
+    "percent_threshold_used": 0.01,
+    "decision_reason": "colored_ratio (0.0000) <= percent_threshold (0.01)"
+  }
+}

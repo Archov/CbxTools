@@ -1,0 +1,48 @@
+{
+  "archive_file": "D:\\work or something\\watch\\Soul Eater, Vol.01 - 053.cbz",
+  "timestamp": "2025-07-21 12:33:52",
+  "parameters": {
+    "pixel_threshold": 16,
+    "percent_threshold": 0.01
+  },
+  "summary": {
+    "total_images": 4,
+    "total_analyzed": 2,
+    "convert_count": 2,
+    "keep_count": 0,
+    "convert_percentage": 100.0,
+    "overall_colored_ratio": 0.005882304526748971
+  },
+  "images": [
+    {
+      "filename": "Soul Eater, Vol.01 - 047-baw.png",
+      "decision": null,
+      "already_greyscale": true,
+      "mode": "L"
+    },
+    {
+      "filename": "Soul Eater, Vol.01 - 047.jpg",
+      "decision": true,
+      "colored_ratio": 0.00588477366255144,
+      "colored_pixels": 7150,
+      "total_pixels": 1215000,
+      "max_diff": 47,
+      "mean_diff": 0.527087242798354
+    },
+    {
+      "filename": "Soul Eater, Vol.01 - 053-baw.png",
+      "decision": null,
+      "already_greyscale": true,
+      "mode": "L"
+    },
+    {
+      "filename": "Soul Eater, Vol.01 - 053.jpg",
+      "decision": true,
+      "colored_ratio": 0.005879835390946502,
+      "colored_pixels": 7144,
+      "total_pixels": 1215000,
+      "max_diff": 48,
+      "mean_diff": 0.4625366255144033
+    }
+  ]
+}
