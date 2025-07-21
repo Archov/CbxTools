@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
 Utility functions for CBZ/CBR to WebP converter.
-Enhanced with auto-greyscale parameter logging.
+Now uses consolidated FileSystemUtils.
 """
 
 import logging
-from pathlib import Path
+from .core.filesystem_utils import FileSystemUtils
 
 
 def setup_logging(verbose, silent):
@@ -25,60 +25,15 @@ def setup_logging(verbose, silent):
     return logging.getLogger(__name__)
 
 
+# Re-export filesystem utilities for backward compatibility
 def get_file_size_formatted(file_path_or_size):
-    """
-    Return a tuple of (human_readable_size, size_in_bytes).
-    If given a path, we take the file size from disk;
-    if given an int, we interpret it as raw bytes.
-    """
-    if isinstance(file_path_or_size, (int, float)):
-        size_bytes = file_path_or_size
-    else:
-        size_bytes = file_path_or_size.stat().st_size
-
-    units = ['B', 'KB', 'MB', 'GB', 'TB']
-    size = float(size_bytes)
-    idx = 0
-
-    while size >= 1024 and idx < len(units) - 1:
-        size /= 1024
-        idx += 1
-
-    return f"{size:.2f} {units[idx]}", size_bytes
+    """Return a tuple of (human_readable_size, size_in_bytes)."""
+    return FileSystemUtils.get_file_size_formatted(file_path_or_size)
 
 
 def remove_empty_dirs(directory, root_dir, logger):
-    """
-    Recursively removes empty directories starting from directory up to root_dir.
-    Stops if a non-empty directory is encountered.
-    
-    Args:
-        directory: The directory to check and potentially remove
-        root_dir: The root directory to stop at (won't be removed)
-        logger: Logger instance for logging messages
-    """
-    # Convert to Path objects if they aren't already
-    directory = Path(directory)
-    root_dir = Path(root_dir)
-    
-    # Don't attempt to remove the root directory or any directory outside the root
-    if directory == root_dir or not str(directory).startswith(str(root_dir)):
-        return
-    
-    # Check if directory exists and is a directory
-    if not directory.is_dir():
-        return
-    
-    # Check if directory is empty
-    if not any(directory.iterdir()):
-        try:
-            directory.rmdir()
-            logger.info(f"Removed empty directory: {directory}")
-            
-            # Recursively check parent directories
-            remove_empty_dirs(directory.parent, root_dir, logger)
-        except Exception as e:
-            logger.error(f"Error removing directory {directory}: {e}")
+    """Recursively remove empty directories."""
+    return FileSystemUtils.remove_empty_dirs(directory, root_dir, logger)
 
 
 def log_effective_parameters(args, logger, recursive=False):

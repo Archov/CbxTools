@@ -1,8 +1,6 @@
 """Utilities for scanning archives for near greyscale images.
 
-The scanning functions return both the number of pages that would trigger
-auto-greyscale conversion and the total pages inspected, and support
-multi-threaded execution.
+Now uses consolidated utilities.
 """
 
 from pathlib import Path
@@ -15,8 +13,9 @@ import numpy as np
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .archives import extract_archive, find_comic_archives
-from .conversion import analyze_image_colorfulness
+from .archives import find_comic_archives
+from .core.archive_handler import ArchiveHandler
+from .core.image_analyzer import ImageAnalyzer
 
 
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'}
@@ -35,7 +34,7 @@ def archive_contains_near_greyscale(archive_path, pixel_threshold=16, percent_th
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
         try:
-            extract_archive(archive_path, temp_path, logger)
+            ArchiveHandler.extract_archive(archive_path, temp_path, logger)
         except Exception as e:
             if logger:
                 logger.error(f"Error extracting {archive_path}: {e}")
@@ -51,7 +50,7 @@ def archive_contains_near_greyscale(archive_path, pixel_threshold=16, percent_th
                                 continue
                             total_count += 1
                             img_array = np.array(img)
-                            max_diff, _, colored_ratio = analyze_image_colorfulness(
+                            max_diff, _, colored_ratio = ImageAnalyzer.analyze_colorfulness(
                                 img_array, pixel_threshold
                             )
                             # Only count as near-greyscale if there are some colored pixels

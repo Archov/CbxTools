@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Image conversion functions for CBZ/CBR to WebP converter with optimized parallel processing.
-Enhanced with automatic greyscale detection and conversion.
+Now uses consolidated utilities.
 """
 
 import os
@@ -16,74 +16,26 @@ import threading
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from .utils import get_file_size_formatted
+from .core.image_analyzer import ImageAnalyzer
+from .core.filesystem_utils import FileSystemUtils
+from .core.packaging_worker import AsynchronousPackagingWorker
 from .archives import extract_archive, create_cbz
 
 
+# Re-export image analysis functions for backward compatibility
 def analyze_image_colorfulness(img_array, pixel_threshold=16):
-    """
-    Analyze if an image is effectively greyscale by checking pixel color variation.
-    
-    Args:
-        img_array: numpy array of image data (RGB)
-        pixel_threshold: threshold for considering a pixel "colored"
-    
-    Returns:
-        tuple: (max_diff, mean_diff, colored_ratio)
-    """
-    # Calculate per-pixel difference between max and min RGB values
-    diffs = img_array.max(axis=2).astype(int) - img_array.min(axis=2).astype(int)
-    max_diff = int(diffs.max())
-    mean_diff = float(diffs.mean())
-    colored_pixels = int(np.count_nonzero(diffs > pixel_threshold))
-    total_pixels = diffs.size
-    colored_ratio = colored_pixels / total_pixels
-    
-    return max_diff, mean_diff, colored_ratio
+    """Analyze if an image is effectively greyscale."""
+    return ImageAnalyzer.analyze_colorfulness(img_array, pixel_threshold)
 
 
 def should_convert_to_greyscale(img_array, pixel_threshold=16, percent_threshold=0.01):
-    """
-    Determine if an image should be converted to greyscale based on color analysis.
-    
-    Args:
-        img_array: numpy array of image data (RGB)
-        pixel_threshold: per-pixel difference threshold for "colored" pixels
-        percent_threshold: fraction of colored pixels above which image is considered colorful
-    
-    Returns:
-        bool: True if image should be converted to greyscale
-    """
-    max_diff, _, colored_ratio = analyze_image_colorfulness(img_array, pixel_threshold)
-    # Don't convert if there are no colored pixels (already effectively greyscale)
-    # This means colored_ratio is 0, which happens when no pixels exceed pixel_threshold
-    if colored_ratio == 0.0:
-        return False
-    return colored_ratio <= percent_threshold
+    """Determine if an image should be converted to greyscale."""
+    return ImageAnalyzer.should_convert_to_greyscale(img_array, pixel_threshold, percent_threshold)
 
 
 def convert_to_bw_with_contrast(img):
-    """Convert image to black and white with auto contrast enhancement.
-    
-    This implements the same workflow as your B&W.py script:
-    1. Convert to grayscale
-    2. Apply auto-contrast for enhanced B&W appearance
-    
-    Args:
-        img: PIL Image object
-        
-    Returns:
-        PIL Image object in 'L' mode with enhanced contrast
-    """
-    from PIL import ImageOps
-    
-    # First convert to black and white (grayscale)
-    bw_img = img.convert('L')
-    
-    # Then apply auto contrast to the black and white image
-    enhanced_bw_img = ImageOps.autocontrast(bw_img)
-    
-    return enhanced_bw_img
+    """Convert image to black and white with auto contrast enhancement."""
+    return ImageAnalyzer.convert_to_bw_with_contrast(img)
 
 
 def convert_single_image(args):
@@ -395,36 +347,32 @@ def convert_to_webp(extract_dir, output_dir, quality, max_width=0, max_height=0,
 
 
 def cbz_packaging_worker(packaging_queue, logger, keep_originals):
-    """Worker function to package WebP images into CBZ files with optimized compression."""
+    """Worker function to package WebP images into CBZ files - DEPRECATED.
+    Use AsynchronousPackagingWorker instead.
+    """
+    # Create new-style worker for backward compatibility
+    worker = AsynchronousPackagingWorker(logger, keep_originals)
+    
     while True:
         item = packaging_queue.get()
         if item is None:  # sentinel
             packaging_queue.task_done()
             break
 
-        # Check if we have the compression level parameter
+        # Handle both old and new item formats
         if len(item) >= 5:
             file_output_dir, cbz_output, input_file, result_dict, zip_compresslevel = item
         else:
-            # Backward compatibility
             file_output_dir, cbz_output, input_file, result_dict = item
-            zip_compresslevel = 9  # Default to maximum compression
+            zip_compresslevel = 9  # Default
         
-        try:
-            create_cbz(file_output_dir, cbz_output, logger, zip_compresslevel)
-            _, new_size_bytes = get_file_size_formatted(cbz_output)
-            result_dict["success"] = True
-            result_dict["new_size"] = new_size_bytes
-
-            if not keep_originals:
-                shutil.rmtree(file_output_dir)
-                logger.debug(f"Removed extracted files from {file_output_dir}")
-
-            logger.info(f"Packaged {input_file.name} successfully")
-        except Exception as e:
-            logger.error(f"Error packaging {input_file.name}: {e}")
-            result_dict["success"] = False
-
+        success, new_size = worker.package_single(
+            file_output_dir, cbz_output, input_file, zip_compresslevel
+        )
+        
+        result_dict["success"] = success
+        result_dict["new_size"] = new_size
+        
         packaging_queue.task_done()
 
 
@@ -459,7 +407,7 @@ def process_single_file(
 
     # Create file-specific output directory within the output_dir
     file_output_dir = output_dir / input_file.stem
-    orig_size_str, orig_size_bytes = get_file_size_formatted(input_file)
+    orig_size_str, orig_size_bytes = FileSystemUtils.get_file_size_formatted(input_file)
     new_size_bytes = 0  # Default value
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -502,7 +450,7 @@ def process_single_file(
                 else:
                     # Synchronous approach - use the compression level
                     create_cbz(file_output_dir, cbz_output, logger, zip_compresslevel)
-                    new_size_str, new_size_bytes = get_file_size_formatted(cbz_output)
+                    new_size_str, new_size_bytes = FileSystemUtils.get_file_size_formatted(cbz_output)
                     size_diff_bytes = orig_size_bytes - new_size_bytes
 
                     if orig_size_bytes > 0:

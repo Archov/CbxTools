@@ -1,6 +1,17 @@
 # CBXTools - Comic Book Archive to WebP Converter
 
-A powerful tool for converting CBZ/CBR comic archives to WebP format, focusing on size reduction while maintaining quality. This tool preserves all non-image files, including metadata like ComicInfo.xml.
+A powerful, modular tool for converting CBZ/CBR comic archives to WebP format, focusing on size reduction while maintaining quality. This tool preserves all non-image files, including metadata like ComicInfo.xml.
+
+## Architecture
+
+CBXTools features a modern, modular architecture with consolidated core utilities:
+
+- **Core Utilities** (`cbxtools.core`): Shared components for archive handling, image analysis, and file operations
+- **Archive Processing**: Unified handling of CBZ/CBR/CB7 formats with consistent extraction and creation
+- **Image Analysis**: Centralized auto-greyscale detection and image processing algorithms
+- **Packaging System**: Flexible worker classes for different execution contexts (synchronous, asynchronous, watch mode)
+- **Path Management**: Consistent path validation and resolution across all operations
+- **File System Utilities**: Unified file operations, size calculations, and directory management
 
 ## Features
 
@@ -10,13 +21,14 @@ A powerful tool for converting CBZ/CBR comic archives to WebP format, focusing o
 - Multi-threaded conversion with optional asynchronous packaging
 - Customizable WebP compression parameters and preprocessing filters
 - Manual grayscale and auto-contrast options
-- Optional automatic greyscale detection with configurable thresholds (works in watch mode)
+- Sophisticated automatic greyscale detection with configurable thresholds
 - Directory watching mode to automatically process new archives, images and image folders
 - Built-in dependency checker with optional automatic installation
 - Persistent lifetime statistics tracking and detailed reports
-- Debug utilities for analysing greyscale detection
+- Comprehensive debug utilities for analyzing greyscale detection
 - Near greyscale scan mode to identify archives with mostly greyscale pages
 - Support for batch processing with recursive directory scanning
+- Modular codebase for easy maintenance and extension
 
 ## Installation
 

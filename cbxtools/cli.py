@@ -12,7 +12,9 @@ import shutil
 import os
 from pathlib import Path
 
-from .utils import setup_logging, remove_empty_dirs, log_effective_parameters
+from .utils import setup_logging, log_effective_parameters
+from .core.path_validator import PathValidator
+from .core.filesystem_utils import FileSystemUtils
 from .archives import find_comic_archives
 from .conversion import process_single_file, process_archive_files
 from .stats_tracker import StatsTracker, print_summary_report, print_lifetime_stats
@@ -778,7 +780,7 @@ def process_directory_recursive(input_path, output_dir, args, logger):
                     logger.info(f"Deleted original file: {archive}")
                     
                     # Check if parent directory is now empty and remove if it is
-                    remove_empty_dirs(archive.parent, input_path, logger)
+                    FileSystemUtils.remove_empty_dirs(archive.parent, input_path, logger)
                 except Exception as e:
                     logger.error(f"Error deleting file {archive}: {e}")
     
@@ -825,15 +827,12 @@ def main():
         return debug_exit_code
 
     # Resolve paths
-    input_path = Path(args.input_path).resolve()
-    output_dir = Path(args.output_dir).resolve() if args.output_dir else None
-
-    if not input_path.exists():
-        logger.error(f"Input path not found: {input_path}")
+    try:
+        input_path = PathValidator.validate_input_path(args.input_path)
+        output_dir = PathValidator.validate_output_path(args.output_dir) if args.output_dir else None
+    except ValueError as e:
+        logger.error(str(e))
         return 1
-
-    if output_dir:
-        output_dir.mkdir(parents=True, exist_ok=True)
     
     # Get command-line overrides to apply on top of preset
     overrides = {}

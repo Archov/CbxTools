@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """
 Watch mode logic for CBZ/CBR/CB7 to WebP converter.
-Reserves one thread for CBZ packaging and uses the rest for image conversion.
-Supports recursive directory watching and preserves source directory structure.
-Now supports watching for new images and image folders.
-Automatic greyscale detection is applied when enabled.
+Now uses consolidated utilities.
 """
 
 import time
@@ -16,8 +13,12 @@ import threading
 import sys 
 from pathlib import Path
 
-from .archives import find_comic_archives, find_image_files, is_image_file, is_archive_file
-from .conversion import process_single_file, cbz_packaging_worker
+from .archives import find_comic_archives
+from .core.archive_handler import ArchiveHandler
+from .core.image_analyzer import ImageAnalyzer
+from .core.filesystem_utils import FileSystemUtils
+from .core.packaging_worker import WatchModePackagingWorker
+from .conversion import process_single_file
 from .stats_tracker import print_lifetime_stats
 
 
@@ -31,7 +32,7 @@ def find_all_watchable_items(directory, recursive=False):
     
     # Find individual images in the root directory
     if directory.is_dir():
-        direct_images = [f for f in directory.iterdir() if f.is_file() and is_image_file(f)]
+        direct_images = [f for f in directory.iterdir() if f.is_file() and ImageAnalyzer.is_image_file(f)]
         items.extend(direct_images)
     
     # Find image folders
@@ -44,8 +45,8 @@ def find_all_watchable_items(directory, recursive=False):
                 continue
             
             # Check if this directory contains images but no archives
-            has_images = any(is_image_file(Path(root) / f) for f in files)
-            has_archives = any(is_archive_file(Path(root) / f) for f in files)
+            has_images = any(ImageAnalyzer.is_image_file(Path(root) / f) for f in files)
+            has_archives = any(ArchiveHandler.is_supported_archive(Path(root) / f) for f in files)
             
             if has_images and not has_archives:
                 # This is an image-only directory
@@ -57,8 +58,8 @@ def find_all_watchable_items(directory, recursive=False):
                 if item.is_dir():
                     try:
                         # Check if this subdirectory contains images but no archives
-                        has_images = any(is_image_file(f) for f in item.iterdir() if f.is_file())
-                        has_archives = any(is_archive_file(f) for f in item.iterdir() if f.is_file())
+                        has_images = any(ImageAnalyzer.is_image_file(f) for f in item.iterdir() if f.is_file())
+                        has_archives = any(ArchiveHandler.is_supported_archive(f) for f in item.iterdir() if f.is_file())
                         
                         if has_images and not has_archives:
                             items.append(item)
@@ -68,76 +69,9 @@ def find_all_watchable_items(directory, recursive=False):
     return sorted(set(items))
 
 
-def _remove_empty_dirs(directory, root_dir, logger):
-    """
-    Recursively removes empty directories starting from directory up to root_dir.
-    Stops if a non-empty directory is encountered.
-    
-    Args:
-        directory: The directory to check and potentially remove
-        root_dir: The root directory to stop at (won't be removed)
-        logger: Logger instance for logging messages
-    """
-    # Convert to Path objects if they aren't already
-    directory = Path(directory)
-    root_dir = Path(root_dir)
-    
-    # Don't attempt to remove the root directory or any directory outside the root
-    if directory == root_dir or not str(directory).startswith(str(root_dir)):
-        return
-    
-    # Check if directory exists and is a directory
-    if not directory.is_dir():
-        return
-    
-    # Check if directory is empty
-    if not any(directory.iterdir()):
-        try:
-            directory.rmdir()
-            logger.info(f"Removed empty directory: {directory}")
-            
-            # Recursively check parent directories
-            _remove_empty_dirs(directory.parent, root_dir, logger)
-        except Exception as e:
-            logger.error(f"Error removing directory {directory}: {e}")
-
-
 def cleanup_empty_directories(root_dir, logger):
-    """
-    Remove all empty directories under root_dir (bottom-up traversal).
-    
-    Args:
-        root_dir: The root directory to clean up
-        logger: Logger instance for logging messages
-    """
-    import os
-    
-    root_dir = Path(root_dir)
-    removed_count = 0
-    
-    # Get all subdirectories (excluding root) as Path objects
-    all_dirs = []
-    for dirpath, dirnames, _ in os.walk(root_dir, topdown=False):
-        for dirname in dirnames:
-            all_dirs.append(Path(dirpath) / dirname)
-    
-    # Sort by depth (deepest first) to ensure we process child directories before parents
-    all_dirs.sort(key=lambda p: len(p.parts), reverse=True)
-    
-    # Remove empty directories
-    for directory in all_dirs:
-        if not any(directory.iterdir()):
-            try:
-                directory.rmdir()
-                removed_count += 1
-                logger.debug(f"Removed empty directory: {directory}")
-            except Exception as e:
-                logger.error(f"Error removing directory {directory}: {e}")
-    
-    if removed_count > 0:
-        logger.info(f"Removed {removed_count} pre-existing empty directories")
-    else:
-        logger.info("No empty directories found")
+    """Remove all empty directories under root_dir (bottom-up traversal)."""
+    return FileSystemUtils.cleanup_empty_directories(root_dir, logger)
 
 
 def detect_new_image_folders(input_dir, processed_items, recursive=False):
@@ -155,8 +89,8 @@ def detect_new_image_folders(input_dir, processed_items, recursive=False):
                 continue
                 
             # Check if this directory contains images but no archives
-            has_images = any(is_image_file(Path(root) / f) for f in files)
-            has_archives = any(is_archive_file(Path(root) / f) for f in files)
+            has_images = any(ImageAnalyzer.is_image_file(Path(root) / f) for f in files)
+            has_archives = any(ArchiveHandler.is_supported_archive(Path(root) / f) for f in files)
             
             if has_images and not has_archives:
                 current_folders.add(root_path)
@@ -165,8 +99,8 @@ def detect_new_image_folders(input_dir, processed_items, recursive=False):
         for item in input_dir.iterdir():
             if item.is_dir():
                 try:
-                    has_images = any(is_image_file(f) for f in item.iterdir() if f.is_file())
-                    has_archives = any(is_archive_file(f) for f in item.iterdir() if f.is_file())
+                    has_images = any(ImageAnalyzer.is_image_file(f) for f in item.iterdir() if f.is_file())
+                    has_archives = any(ArchiveHandler.is_supported_archive(f) for f in item.iterdir() if f.is_file())
                     
                     if has_images and not has_archives:
                         current_folders.add(item)
@@ -269,6 +203,13 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
         
         # Modified packaging worker that puts results in our result queue
         def enhanced_packaging_worker(packaging_queue, result_queue, logger, keep_originals):
+            """DEPRECATED: Use WatchModePackagingWorker instead."""
+            worker = WatchModePackagingWorker(logger, keep_originals, result_queue)
+            worker._worker_loop = lambda: worker._enhanced_worker_loop(packaging_queue)
+            worker._enhanced_worker_loop(packaging_queue)
+            
+        def _enhanced_worker_loop(packaging_queue):
+            """Enhanced worker loop implementation."""
             while True:
                 item = packaging_queue.get()
                 if item is None:  # sentinel
@@ -281,37 +222,21 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                     file_output_dir, cbz_output, input_file, result_dict = item
                     zip_compresslevel = 9
                 
-                try:
-                    from .archives import create_cbz
-                    from .utils import get_file_size_formatted
-                    
-                    create_cbz(file_output_dir, cbz_output, logger, zip_compresslevel)
-                    _, new_size_bytes = get_file_size_formatted(cbz_output)
-                    result_dict["success"] = True
-                    result_dict["new_size"] = new_size_bytes
-                    
-                    # Put the result in our queue for stats tracking
-                    result_queue.put({
+                success, new_size = worker.package_single(
+                    file_output_dir, cbz_output, input_file, zip_compresslevel
+                )
+                
+                result_dict["success"] = success
+                result_dict["new_size"] = new_size
+                
+                # Put the result in our queue for stats tracking
+                if worker.result_queue:
+                    worker.result_queue.put({
                         "file": input_file,
-                        "success": True,
-                        "new_size": new_size_bytes
+                        "success": success,
+                        "new_size": new_size
                     })
-
-                    if not keep_originals:
-                        import shutil
-                        shutil.rmtree(file_output_dir)
-                        logger.debug(f"Removed extracted files from {file_output_dir}")
-
-                    logger.info(f"Packaged {input_file.name} successfully")
-                except Exception as e:
-                    logger.error(f"Error packaging {input_file.name}: {e}")
-                    result_dict["success"] = False
-                    result_queue.put({
-                        "file": input_file,
-                        "success": False,
-                        "new_size": 0
-                    })
-
+                
                 packaging_queue.task_done()
         
         # Start the enhanced packaging worker
@@ -468,7 +393,7 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                                     logger.info(f"Deleted original file: {item}")
                                     
                                     # Check if parent directory is now empty and remove if it is
-                                    _remove_empty_dirs(item.parent, input_dir, logger)
+                                    FileSystemUtils.remove_empty_dirs(item.parent, input_dir, logger)
                                 elif item.is_dir():
                                     # Delete the original image folder
                                     import shutil
@@ -476,7 +401,7 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                                     logger.info(f"Deleted original folder: {item}")
                                     
                                     # Check if parent directory is now empty and remove if it is
-                                    _remove_empty_dirs(item.parent, input_dir, logger)
+                                    FileSystemUtils.remove_empty_dirs(item.parent, input_dir, logger)
                             except Exception as e:
                                 logger.error(f"Error deleting {item}: {e}")
                     else:
