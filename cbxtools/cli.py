@@ -686,7 +686,8 @@ def process_single_archive_file(input_path, output_dir, args, logger):
         auto_greyscale=args.auto_greyscale,
         auto_greyscale_pixel_threshold=args.auto_greyscale_pixel_threshold,
         auto_greyscale_percent_threshold=args.auto_greyscale_percent_threshold,
-        preserve_auto_greyscale_png=args.preserve_auto_greyscale_png
+        preserve_auto_greyscale_png=args.preserve_auto_greyscale_png,
+        verbose=args.verbose
     )
 
     if success and not args.no_cbz:
@@ -763,9 +764,10 @@ def process_directory_recursive(input_path, output_dir, args, logger):
             auto_contrast=args.auto_contrast,
             auto_greyscale=args.auto_greyscale,
             auto_greyscale_pixel_threshold=args.auto_greyscale_pixel_threshold,
-            auto_greyscale_percent_threshold=args.auto_greyscale_percent_threshold,
-            preserve_auto_greyscale_png=args.preserve_auto_greyscale_png
-        )
+        auto_greyscale_percent_threshold=args.auto_greyscale_percent_threshold,
+        preserve_auto_greyscale_png=args.preserve_auto_greyscale_png,
+        verbose=args.verbose
+    )
         
         if success:
             success_count += 1
