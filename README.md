@@ -165,7 +165,7 @@ cbxtools --stats-only
 Scan a directory for near-greyscale archives without moving them:
 
 ```bash
-cbxtools --scan-near-greyscale dryrun --scan-output "D:\Manga Backup" D:\Manga
+cbxtools --scan-near-greyscale dryrun --scan-output "D:\Manga Backup" "D:\Manga Backup"
 ```
 
 This creates `near_greyscale_list.txt` inside `D:\Manga Backup`.
