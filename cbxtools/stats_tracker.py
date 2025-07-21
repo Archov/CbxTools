@@ -16,7 +16,7 @@ class StatsTracker:
     
     def __init__(self, stats_file=None):
         if stats_file is None:
-            self.stats_file = Path.home() / '.cbxtools//.cbx-tools-stats.json'
+            self.stats_file = Path.home() / '.cbx-tools-stats.json'
         else:
             self.stats_file = Path(stats_file)
         self.stats = self._load_stats()

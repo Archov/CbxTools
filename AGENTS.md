@@ -224,7 +224,7 @@ Each preset can configure:
 
 ### User Configuration
 - Presets stored in `~/.cbxtools/presets.json`
-- Statistics stored in `~/.cbxtools/.cbx-tools-stats.json`
+ - Statistics stored in `~/.cbx-tools-stats.json`
 - Watch mode history in output directory
 
 ### Debug Parameter Resolution
