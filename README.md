@@ -112,7 +112,7 @@ cbxtools input_path output_dir [options]
 
 - `--verbose`, `-v`: Enable verbose output
 - `--silent`, `-s`: Suppress all output except errors
-- `--stats-file PATH`: Path to stats file (default: ~/.cbx-tools-stats.json)
+- `--stats-file PATH`: Path to stats file (default: ~/.cbxtools/.cbx-tools-stats.json)
 - `--no-stats`: Do not update or display lifetime statistics
 - `--stats-only`: Display lifetime statistics and exit
 
