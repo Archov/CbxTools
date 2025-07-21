@@ -362,6 +362,7 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                             'auto_greyscale_percent_threshold',
                             0.01,
                         ),
+                        verbose=args.verbose,
                     )
 
                     if success:
