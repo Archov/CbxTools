@@ -186,7 +186,7 @@ def test_packaging_workers():
         # Test watch mode worker creation
         import queue
         result_queue = queue.Queue()
-        watch_worker = WatchModePackagingWorker(logger, keep_originals=False, result_queue)
+        watch_worker = WatchModePackagingWorker(logger, keep_originals=False, result_queue=result_queue)
         assert watch_worker.logger == logger
         assert watch_worker.result_queue == result_queue
         

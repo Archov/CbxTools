@@ -13,7 +13,7 @@ import threading
 import sys 
 from pathlib import Path
 
-from .archives import find_comic_archives
+from .archives import find_comic_archives, is_image_file
 from .core.archive_handler import ArchiveHandler
 from .core.image_analyzer import ImageAnalyzer
 from .core.filesystem_utils import FileSystemUtils
@@ -200,44 +200,47 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
 
     if not args.no_cbz:
         packaging_queue = queue.Queue()
-        
+
         # Modified packaging worker that puts results in our result queue
         def enhanced_packaging_worker(packaging_queue, result_queue, logger, keep_originals):
-            """DEPRECATED: Use WatchModePackagingWorker instead."""
+            """Start a packaging worker with an enhanced loop for watch mode."""
             worker = WatchModePackagingWorker(logger, keep_originals, result_queue)
+
+            def _enhanced_worker_loop(packaging_queue):
+                """Enhanced worker loop implementation."""
+                while True:
+                    item = packaging_queue.get()
+                    if item is None:  # sentinel
+                        packaging_queue.task_done()
+                        break
+
+                    if len(item) >= 5:
+                        file_output_dir, cbz_output, input_file, result_dict, zip_compresslevel = item
+                    else:
+                        file_output_dir, cbz_output, input_file, result_dict = item
+                        zip_compresslevel = 9
+
+                    success, new_size = worker.package_single(
+                        file_output_dir, cbz_output, input_file, zip_compresslevel
+                    )
+
+                    result_dict["success"] = success
+                    result_dict["new_size"] = new_size
+
+                    # Put the result in our queue for stats tracking
+                    if worker.result_queue:
+                        worker.result_queue.put({
+                            "file": input_file,
+                            "success": success,
+                            "new_size": new_size,
+                        })
+
+                    packaging_queue.task_done()
+
+            # Attach the enhanced loop to the worker
+            worker._enhanced_worker_loop = _enhanced_worker_loop
             worker._worker_loop = lambda: worker._enhanced_worker_loop(packaging_queue)
             worker._enhanced_worker_loop(packaging_queue)
-            
-        def _enhanced_worker_loop(packaging_queue):
-            """Enhanced worker loop implementation."""
-            while True:
-                item = packaging_queue.get()
-                if item is None:  # sentinel
-                    packaging_queue.task_done()
-                    break
-                
-                if len(item) >= 5:
-                    file_output_dir, cbz_output, input_file, result_dict, zip_compresslevel = item
-                else:
-                    file_output_dir, cbz_output, input_file, result_dict = item
-                    zip_compresslevel = 9
-                
-                success, new_size = worker.package_single(
-                    file_output_dir, cbz_output, input_file, zip_compresslevel
-                )
-                
-                result_dict["success"] = success
-                result_dict["new_size"] = new_size
-                
-                # Put the result in our queue for stats tracking
-                if worker.result_queue:
-                    worker.result_queue.put({
-                        "file": input_file,
-                        "success": success,
-                        "new_size": new_size
-                    })
-                
-                packaging_queue.task_done()
         
         # Start the enhanced packaging worker
         packaging_thread = threading.Thread(
