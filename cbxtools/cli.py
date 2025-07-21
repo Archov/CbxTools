@@ -272,6 +272,8 @@ def parse_arguments():
                         help='Pixel difference threshold for auto-greyscale detection (default: 16)')
     transform_group.add_argument('--auto-greyscale-percent-threshold', type=float, default=None,
                         help='Percentage of colored pixels threshold for auto-greyscale (default: 0.01)')
+    transform_group.add_argument('--preserve-auto-greyscale-png', action='store_true', default=None,
+                        help='Preserve the intermediate PNG file during auto-greyscale conversion for debugging')
     
     # Preset options
     preset_group = parser.add_argument_group('Preset Options')
@@ -681,7 +683,8 @@ def process_single_archive_file(input_path, output_dir, args, logger):
         auto_contrast=args.auto_contrast,
         auto_greyscale=args.auto_greyscale,
         auto_greyscale_pixel_threshold=args.auto_greyscale_pixel_threshold,
-        auto_greyscale_percent_threshold=args.auto_greyscale_percent_threshold
+        auto_greyscale_percent_threshold=args.auto_greyscale_percent_threshold,
+        preserve_auto_greyscale_png=args.preserve_auto_greyscale_png
     )
 
     if success and not args.no_cbz:
@@ -758,7 +761,8 @@ def process_directory_recursive(input_path, output_dir, args, logger):
             auto_contrast=args.auto_contrast,
             auto_greyscale=args.auto_greyscale,
             auto_greyscale_pixel_threshold=args.auto_greyscale_pixel_threshold,
-            auto_greyscale_percent_threshold=args.auto_greyscale_percent_threshold
+            auto_greyscale_percent_threshold=args.auto_greyscale_percent_threshold,
+            preserve_auto_greyscale_png=args.preserve_auto_greyscale_png
         )
         
         if success:
@@ -838,7 +842,8 @@ def main():
         'method', 'preprocessing',
         'zip_compression', 'lossless',
         'grayscale', 'auto_contrast',
-        'auto_greyscale', 'auto_greyscale_pixel_threshold', 'auto_greyscale_percent_threshold'
+        'auto_greyscale', 'auto_greyscale_pixel_threshold', 'auto_greyscale_percent_threshold',
+        'preserve_auto_greyscale_png'
     ]:
         value = getattr(args, param)
         # Only override if the user explicitly set it 

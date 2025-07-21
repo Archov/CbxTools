@@ -10,82 +10,87 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+# Import the actual conversion functions to ensure consistency
+from .conversion import analyze_image_colorfulness, should_convert_to_greyscale
 
-def analyze_image_colorfulness(img_array, pixel_threshold=16, debug=False):
+
+def analyze_image_colorfulness_debug(img_array, pixel_threshold=16):
     """
     Analyze if an image is effectively greyscale by checking pixel color variation.
+    Extended debug version that returns additional statistics.
     
     Args:
         img_array: numpy array of image data (RGB)
         pixel_threshold: threshold for considering a pixel "colored"
-        debug: if True, return additional debug information
     
     Returns:
-        tuple: (max_diff, mean_diff, colored_ratio) or debug dict if debug=True
+        dict: Extended debug information including all statistics
     """
-    # Calculate per-pixel difference between max and min RGB values
+    # Use the main conversion function for core analysis
+    max_diff, mean_diff, colored_ratio = analyze_image_colorfulness(img_array, pixel_threshold)
+    
+    # Add extended debug statistics
     diffs = img_array.max(axis=2).astype(int) - img_array.min(axis=2).astype(int)
-    max_diff = int(diffs.max())
-    mean_diff = float(diffs.mean())
+    std_diff = float(diffs.std())
+    median_diff = float(np.median(diffs))
+    percentile_95 = float(np.percentile(diffs, 95))
+    percentile_99 = float(np.percentile(diffs, 99))
+    
+    # Count pixels in different ranges
     colored_pixels = int(np.count_nonzero(diffs > pixel_threshold))
+    very_colored = int(np.count_nonzero(diffs > pixel_threshold * 2))
+    slightly_colored = int(np.count_nonzero((diffs > pixel_threshold) & (diffs <= pixel_threshold * 2)))
     total_pixels = diffs.size
-    colored_ratio = colored_pixels / total_pixels
     
-    if debug:
-        # Additional debug statistics
-        std_diff = float(diffs.std())
-        median_diff = float(np.median(diffs))
-        percentile_95 = float(np.percentile(diffs, 95))
-        percentile_99 = float(np.percentile(diffs, 99))
-        
-        # Count pixels in different ranges
-        very_colored = int(np.count_nonzero(diffs > pixel_threshold * 2))
-        slightly_colored = int(np.count_nonzero((diffs > pixel_threshold) & (diffs <= pixel_threshold * 2)))
-        
-        return {
-            'max_diff': max_diff,
-            'mean_diff': mean_diff,
-            'std_diff': std_diff,
-            'median_diff': median_diff,
-            'percentile_95': percentile_95,
-            'percentile_99': percentile_99,
-            'colored_pixels': colored_pixels,
-            'very_colored_pixels': very_colored,
-            'slightly_colored_pixels': slightly_colored,
-            'total_pixels': total_pixels,
-            'colored_ratio': colored_ratio,
-            'very_colored_ratio': very_colored / total_pixels,
-            'slightly_colored_ratio': slightly_colored / total_pixels,
-            'pixel_threshold_used': pixel_threshold,
-            'image_shape': img_array.shape
-        }
-    
-    return max_diff, mean_diff, colored_ratio
+    return {
+        'max_diff': max_diff,
+        'mean_diff': mean_diff,
+        'std_diff': std_diff,
+        'median_diff': median_diff,
+        'percentile_95': percentile_95,
+        'percentile_99': percentile_99,
+        'colored_pixels': colored_pixels,
+        'very_colored_pixels': very_colored,
+        'slightly_colored_pixels': slightly_colored,
+        'total_pixels': total_pixels,
+        'colored_ratio': colored_ratio,
+        'very_colored_ratio': very_colored / total_pixels,
+        'slightly_colored_ratio': slightly_colored / total_pixels,
+        'pixel_threshold_used': pixel_threshold,
+        'image_shape': img_array.shape
+    }
 
 
-def should_convert_to_greyscale(img_array, pixel_threshold=16, percent_threshold=0.01, debug=False):
+def should_convert_to_greyscale_debug(img_array, pixel_threshold=16, percent_threshold=0.01):
     """
     Determine if an image should be converted to greyscale based on color analysis.
+    Debug version that returns detailed analysis.
     
     Args:
         img_array: numpy array of image data (RGB)
         pixel_threshold: per-pixel difference threshold for "colored" pixels
         percent_threshold: fraction of colored pixels above which image is considered colorful
-        debug: if True, return detailed analysis
     
     Returns:
-        bool or tuple: True if image should be converted to greyscale, or (decision, debug_info) if debug=True
+        tuple: (decision, debug_info)
     """
-    if debug:
-        analysis = analyze_image_colorfulness(img_array, pixel_threshold, debug=True)
-        decision = analysis['colored_ratio'] <= percent_threshold
-        analysis['decision'] = decision
-        analysis['percent_threshold_used'] = percent_threshold
-        analysis['decision_reason'] = f"colored_ratio ({analysis['colored_ratio']:.4f}) {'<=' if decision else '>'} percent_threshold ({percent_threshold})"
-        return decision, analysis
+    # Use the main conversion function for the decision
+    decision = should_convert_to_greyscale(img_array, pixel_threshold, percent_threshold)
+    
+    # Get extended debug information
+    analysis = analyze_image_colorfulness_debug(img_array, pixel_threshold)
+    
+    # Add decision information
+    analysis['decision'] = decision
+    analysis['percent_threshold_used'] = percent_threshold
+    
+    # Generate decision reason based on the actual logic
+    if analysis['colored_pixels'] == 0:
+        analysis['decision_reason'] = "colored_pixels is 0 (already effectively greyscale)"
     else:
-        _, _, colored_ratio = analyze_image_colorfulness(img_array, pixel_threshold, debug=False)
-        return colored_ratio <= percent_threshold
+        analysis['decision_reason'] = f"colored_ratio ({analysis['colored_ratio']:.4f}) {'<=' if decision else '>'} percent_threshold ({percent_threshold})"
+    
+    return decision, analysis
 
 
 def save_debug_analysis(image_path, analysis, output_dir, logger):
@@ -294,6 +299,8 @@ def debug_archive_greyscale(archive_path, output_dir=None,
             results = []
             convert_count = 0
             keep_count = 0
+            already_greyscale_count = 0
+            skipped_native_greyscale_count = 0
             total_pixels = 0
             total_colored_pixels = 0
             
@@ -310,14 +317,17 @@ def debug_archive_greyscale(archive_path, output_dir=None,
                             img_array = np.array(img)
                             
                             # Perform analysis
-                            decision, analysis = should_convert_to_greyscale(
-                                img_array, pixel_threshold, percent_threshold, debug=True
+                            decision, analysis = should_convert_to_greyscale_debug(
+                                img_array, pixel_threshold, percent_threshold
                             )
                             
                             # Track statistics
                             if decision:
                                 convert_count += 1
                                 decision_str = "→ GREYSCALE"
+                            elif analysis['colored_ratio'] == 0.0:
+                                already_greyscale_count += 1
+                                decision_str = "→ ALREADY GREYSCALE"
                             else:
                                 keep_count += 1
                                 decision_str = "→ COLOR"
@@ -354,6 +364,7 @@ def debug_archive_greyscale(archive_path, output_dir=None,
                             
                         else:
                             logger.info(f"  Skipping: {img_file.name} (already greyscale mode: {img.mode})")
+                            skipped_native_greyscale_count += 1
                             results.append({
                                 'filename': img_file.name,
                                 'decision': None,
@@ -369,23 +380,31 @@ def debug_archive_greyscale(archive_path, output_dir=None,
                     })
             
             # Generate summary
-            total_analyzed = convert_count + keep_count
-            if total_analyzed > 0:
-                convert_pct = (convert_count / total_analyzed) * 100
+            total_analyzed = convert_count + keep_count + already_greyscale_count
+            total_images_processed = total_analyzed + skipped_native_greyscale_count
+            if total_images_processed > 0:
+                convert_pct = (convert_count / total_analyzed) * 100 if total_analyzed > 0 else 0
+                keep_pct = (keep_count / total_analyzed) * 100 if total_analyzed > 0 else 0
+                already_grey_pct = (already_greyscale_count / total_analyzed) * 100 if total_analyzed > 0 else 0
+                skipped_pct = (skipped_native_greyscale_count / total_images_processed) * 100
                 overall_colored_ratio = total_colored_pixels / total_pixels if total_pixels > 0 else 0
                 
                 logger.info("\n" + "=" * 60)
                 logger.info(f"ARCHIVE ANALYSIS SUMMARY: {archive_path.name}")
                 logger.info("=" * 60)
-                logger.info(f"Total images analyzed: {total_analyzed}")
+                logger.info(f"Total images found: {len(image_files)}")
+                logger.info(f"Images analyzed: {total_analyzed}")
+                logger.info(f"Images skipped (native greyscale): {skipped_native_greyscale_count} ({skipped_pct:.1f}%)")
                 logger.info(f"Would convert to greyscale: {convert_count} ({convert_pct:.1f}%)")
-                logger.info(f"Would keep in color: {keep_count} ({100-convert_pct:.1f}%)")
+                logger.info(f"Would keep in color: {keep_count} ({keep_pct:.1f}%)")
+                logger.info(f"Already effectively greyscale: {already_greyscale_count} ({already_grey_pct:.1f}%)")
                 logger.info(f"Overall colored ratio: {overall_colored_ratio:.4f}")
                 logger.info(f"Parameters used: pixel_threshold={pixel_threshold}, percent_threshold={percent_threshold}")
                 
                 # Statistics for converted vs kept
                 converted_results = [r for r in results if r.get('decision') == True]
-                kept_results = [r for r in results if r.get('decision') == False]
+                kept_results = [r for r in results if r.get('decision') == False and r.get('colored_ratio', 1.0) > 0.0]
+                already_grey_results = [r for r in results if r.get('decision') == False and r.get('colored_ratio', 1.0) == 0.0]
                 
                 if converted_results:
                     avg_converted_ratio = sum(r['colored_ratio'] for r in converted_results) / len(converted_results)
@@ -394,6 +413,9 @@ def debug_archive_greyscale(archive_path, output_dir=None,
                 if kept_results:
                     avg_kept_ratio = sum(r['colored_ratio'] for r in kept_results) / len(kept_results)
                     logger.info(f"Average colored ratio (kept): {avg_kept_ratio:.4f}")
+                
+                if already_grey_results:
+                    logger.info(f"Already greyscale images: {len(already_grey_results)} (colored_ratio: 0.0000)")
                 
                 logger.info("=" * 60)
                 
@@ -408,9 +430,15 @@ def debug_archive_greyscale(archive_path, output_dir=None,
                     'summary': {
                         'total_images': len(image_files),
                         'total_analyzed': total_analyzed,
+                        'total_processed': total_images_processed,
                         'convert_count': convert_count,
                         'keep_count': keep_count,
+                        'already_greyscale_count': already_greyscale_count,
+                        'skipped_native_greyscale_count': skipped_native_greyscale_count,
                         'convert_percentage': convert_pct,
+                        'keep_percentage': keep_pct,
+                        'already_greyscale_percentage': already_grey_pct,
+                        'skipped_percentage': skipped_pct,
                         'overall_colored_ratio': overall_colored_ratio
                     },
                     'images': results
@@ -483,8 +511,8 @@ def debug_single_image_greyscale(image_path, output_dir=None,
                 img_array = np.array(img)
                 
                 # Perform detailed analysis
-                decision, analysis = should_convert_to_greyscale(
-                    img_array, pixel_threshold, percent_threshold, debug=True
+                decision, analysis = should_convert_to_greyscale_debug(
+                    img_array, pixel_threshold, percent_threshold
                 )
                 
                 # Print detailed results
@@ -663,6 +691,7 @@ def analyze_directory_for_auto_greyscale(directory_path, pixel_threshold=16,
     results = []
     convert_count = 0
     keep_count = 0
+    already_greyscale_count = 0
     error_count = 0
     
     for file_to_analyze in sorted(files_to_analyze):
@@ -707,6 +736,9 @@ def analyze_directory_for_auto_greyscale(directory_path, pixel_threshold=16,
                     if analysis['decision']:
                         convert_count += 1
                         decision_str = "→ GREYSCALE"
+                    elif analysis['colored_ratio'] == 0.0:
+                        already_greyscale_count += 1
+                        decision_str = "→ ALREADY GREYSCALE"
                     else:
                         keep_count += 1
                         decision_str = "→ COLOR"
@@ -719,7 +751,16 @@ def analyze_directory_for_auto_greyscale(directory_path, pixel_threshold=16,
                         'colored_ratio': analysis['colored_ratio'],
                         'max_diff': analysis['max_diff'],
                         'mean_diff': analysis['mean_diff']
-                    })  
+                    })
+                elif analysis.get('already_greyscale'):
+                    # Handle already greyscale images
+                    logger.info(f"{file_to_analyze.name:30s} | already greyscale ({analysis.get('mode', 'unknown')}) | → SKIP")
+                    results.append({
+                        'filename': file_to_analyze.name,
+                        'type': 'image',
+                        'already_greyscale': True,
+                        'mode': analysis.get('mode', 'unknown')
+                    })
                 else:
                     error_count += 1
                     logger.warning(f"Could not analyze: {file_to_analyze.name}")
@@ -732,20 +773,23 @@ def analyze_directory_for_auto_greyscale(directory_path, pixel_threshold=16,
             logger.error(f"Error analyzing {file_to_analyze.name}: {e}")
     
     # Summary statistics
-    total_analyzed = convert_count + keep_count
+    total_analyzed = convert_count + keep_count + already_greyscale_count
     if total_analyzed > 0:
         convert_pct = (convert_count / total_analyzed) * 100
+        keep_pct = (keep_count / total_analyzed) * 100
+        already_grey_pct = (already_greyscale_count / total_analyzed) * 100
         
         # Calculate statistics for converted vs kept images
-        converted_ratios = [r['colored_ratio'] for r in results if r['decision']]
-        kept_ratios = [r['colored_ratio'] for r in results if not r['decision']]
+        converted_ratios = [r['colored_ratio'] for r in results if r.get('decision') == True and 'colored_ratio' in r]
+        kept_ratios = [r['colored_ratio'] for r in results if r.get('decision') == False and 'colored_ratio' in r and r['colored_ratio'] > 0.0]
         
         logger.info("\n" + "=" * 60)
         logger.info("BATCH ANALYSIS SUMMARY")
         logger.info("=" * 60)
         logger.info(f"Total images analyzed: {total_analyzed}")
         logger.info(f"Would convert to greyscale: {convert_count} ({convert_pct:.1f}%)")
-        logger.info(f"Would keep in color: {keep_count} ({100-convert_pct:.1f}%)")
+        logger.info(f"Would keep in color: {keep_count} ({keep_pct:.1f}%)")
+        logger.info(f"Already effectively greyscale: {already_greyscale_count} ({already_grey_pct:.1f}%)")
         logger.info(f"Errors: {error_count}")
         
         if converted_ratios:
@@ -770,8 +814,11 @@ def analyze_directory_for_auto_greyscale(directory_path, pixel_threshold=16,
                 'total_analyzed': total_analyzed,
                 'convert_count': convert_count,
                 'keep_count': keep_count,
+                'already_greyscale_count': already_greyscale_count,
                 'error_count': error_count,
-                'convert_percentage': convert_pct
+                'convert_percentage': convert_pct,
+                'keep_percentage': keep_pct,
+                'already_greyscale_percentage': already_grey_pct
             },
             'results': results
         }

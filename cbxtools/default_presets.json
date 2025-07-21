@@ -7,6 +7,7 @@
     "auto_greyscale": false,
     "auto_greyscale_pixel_threshold": 16,
     "auto_greyscale_percent_threshold": 0.01,
+    "preserve_auto_greyscale_png": false,
     "description": "Default settings with balanced quality and performance"
   },
   "comic": {
@@ -51,7 +52,7 @@
     "max_height": 2400,
     "lossless": false,
     "auto_greyscale": true,
-    "auto_greyscale_pixel_threshold": 12,
+    "auto_greyscale_pixel_threshold": 16,
     "auto_greyscale_percent_threshold": 0.01,
     "description": "Optimized for manga with aggressive greyscale detection and size limits for e-readers"
   }

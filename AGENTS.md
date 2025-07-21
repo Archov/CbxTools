@@ -28,6 +28,19 @@ cbxtools/
 
 ## Core Components
 
+### Code Architecture - Shared Functions
+
+#### Critical: Single Source of Truth
+- `analyze_image_colorfulness()` and `should_convert_to_greyscale()` are the authoritative implementations in `conversion.py`
+- `debug_utils.py` imports these functions to ensure consistency
+- **Never duplicate core logic** - always import from `conversion.py`
+- Debug functions extend with additional statistics but use same core algorithms
+
+#### Function Relationships
+- `debug_utils.py` provides `*_debug()` variants that add extended analysis
+- `near_greyscale_scan.py` imports directly from `conversion.py`
+- Any changes to conversion logic automatically apply to all modules
+
 ### 1. CLI Interface (`cli.py`)
 **Purpose**: Command-line argument parsing and application orchestration
 **Key Functions**:
@@ -143,11 +156,45 @@ The core greyscale detection uses pixel-level color analysis:
 3. **Percentage Check**: If colored pixels < `percent_threshold` (default: 0.01), convert to greyscale
 4. **Enhanced Conversion**: Apply greyscale + auto-contrast for optimal B&W appearance
 
+#### Auto-Greyscale Edge Cases
+
+##### Zero Colored Pixels Rule
+- Images with `colored_ratio == 0.0` are **NOT** converted (already effectively greyscale)
+- This prevents unnecessary processing of already-greyscale images
+- WebP files can be in RGB mode but have zero color content
+
+##### Threshold Logic
+```python
+if colored_ratio == 0.0:
+    return False  # Already greyscale
+return colored_ratio <= percent_threshold
+```
+
+##### Debug Categories
+1. **Convert to Greyscale**: `0 < colored_ratio <= threshold`
+2. **Keep Color**: `colored_ratio > threshold` 
+3. **Already Greyscale**: `colored_ratio == 0.0`
+4. **Skipped**: Native grayscale mode ('L')
+
 ### Multi-threaded Processing Pipeline
 1. **Extraction**: Archive extraction (single-threaded per archive)
 2. **Conversion**: Image processing (multi-threaded pool)
 3. **Packaging**: CBZ creation (dedicated thread with queue)
 4. **Statistics**: Async result collection and reporting
+
+## Image Processing Pipelines
+
+### Auto-Greyscale Workflow
+1. Load image → RGB mode
+2. Analyze color content → decision
+3. If convert: Apply `convert_to_bw_with_contrast()`
+4. Save to temporary PNG → reload → convert to WebP
+5. Optional: Preserve PNG with `--preserve-auto-greyscale-png`
+
+### Manual B&W vs Auto-Greyscale
+- **B&W.py**: JPG → grayscale+contrast → PNG (direct)
+- **CBXtools**: JPG → analyze → grayscale+contrast → temp PNG → WebP
+- **Same core processing** but different analysis timing
 
 ## Dependencies
 
@@ -180,6 +227,21 @@ Each preset can configure:
 - Statistics stored in `~/.cbxtools/.cbx-tools-stats.json`
 - Watch mode history in output directory
 
+### Debug Parameter Resolution
+1. **Command-line args** (highest priority)
+2. **Preset values** (if args not specified)
+3. **Default values** (fallback)
+
+### Preset Application
+- Debug operations respect `--preset` parameter
+- Only auto-greyscale thresholds are used by debug
+- Other conversion parameters ignored in debug mode
+
+### Parameter Flow
+```
+CLI args → apply_preset_with_overrides() → final parameters → debug functions
+```
+
 ## Usage Patterns
 
 ### Basic Conversion
@@ -201,6 +263,30 @@ cbxtools incoming/ output/ --watch --delete-originals
 ```bash
 cbxtools --scan-near-greyscale dryrun manga_collection/
 ```
+
+## Debug System Architecture
+
+### Debug vs Production Consistency
+- Debug uses same algorithms as production conversion
+- Extended debug functions provide additional statistics
+- Analysis files show exact decision logic used
+
+### Debug Output Structure
+```python
+# Analysis files contain:
+{
+  "decision": bool,           # Conversion decision
+  "colored_ratio": float,     # Percentage of colored pixels  
+  "decision_reason": str,     # Human-readable explanation
+  "max_diff": int,           # Maximum color difference found
+  "colored_pixels": int      # Count of pixels above threshold
+}
+```
+
+### Debug Commands
+- `--debug-auto-greyscale-single`: Analyze single file/archive
+- `--preserve-auto-greyscale-png`: Keep intermediate PNG files
+- `--debug-analyze-directory`: Batch analysis with statistics
 
 ## Performance Characteristics
 
@@ -230,6 +316,23 @@ cbxtools --scan-near-greyscale dryrun manga_collection/
 - Partial conversions can be resumed
 - Statistics survive application crashes
 - Empty directory cleanup on restart
+
+## Common Issues & Solutions
+
+### "Already Greyscale" Images Still Converting
+- **Symptom**: Images with 0.0000 colored_ratio showing "→ GREYSCALE"
+- **Cause**: Using `max_diff == 0` instead of `colored_ratio == 0.0`
+- **Fix**: Check `colored_ratio == 0.0` for zero-colored-pixels detection
+
+### Debug vs Production Differences  
+- **Symptom**: Debug shows different results than actual conversion
+- **Cause**: Code duplication between modules
+- **Fix**: Ensure debug imports from `conversion.py`
+
+### Missing Images in Debug Counts
+- **Symptom**: "Found X images" but "Analyzed Y images" where Y < X
+- **Cause**: Native greyscale images (mode 'L') are skipped
+- **Fix**: Track skipped images separately in summary
 
 ## Extension Points
 

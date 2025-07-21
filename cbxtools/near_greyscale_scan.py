@@ -16,7 +16,7 @@ import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .archives import extract_archive, find_comic_archives
-from .conversion import should_convert_to_greyscale, analyze_image_colorfulness
+from .conversion import analyze_image_colorfulness
 
 
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'}
@@ -51,9 +51,11 @@ def archive_contains_near_greyscale(archive_path, pixel_threshold=16, percent_th
                                 continue
                             total_count += 1
                             img_array = np.array(img)
-                            _, _, colored_ratio = analyze_image_colorfulness(
+                            max_diff, _, colored_ratio = analyze_image_colorfulness(
                                 img_array, pixel_threshold
                             )
+                            # Only count as near-greyscale if there are some colored pixels
+                            # but below the threshold (don't convert pure greyscale)
                             if 0 < colored_ratio <= percent_threshold:
                                 near_count += 1
                     except Exception as e:
