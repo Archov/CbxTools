@@ -11,15 +11,22 @@ cbxtools/
 │   ├── __init__.py             # Package initialization
 │   ├── __main__.py             # Entry point for module execution
 │   ├── cli.py                  # Command-line interface and argument parsing
-│   ├── conversion.py           # Core image conversion logic
-│   ├── archives.py             # Archive handling (CBZ/CBR/CB7 extraction/creation)
-│   ├── utils.py                # Utility functions and logging setup
+│   ├── conversion.py           # Wrapper around core image utilities
+│   ├── debug_utils.py          # Debug helpers built on ImageAnalyzer
+│   ├── archives.py             # Legacy archive helpers
+│   ├── utils.py                # Compatibility utilities and logging setup
 │   ├── presets.py              # Preset management system
 │   ├── stats_tracker.py        # Statistics tracking and reporting
 │   ├── watchers.py             # Watch mode functionality
 │   ├── near_greyscale_scan.py  # Near-greyscale image detection
-│   ├── debug_utils.py          # Debug utilities for greyscale analysis
-│   └── default_presets.json    # Default preset configurations
+│   ├── default_presets.json    # Default preset configurations
+│   └── core/                   # Consolidated implementation layer
+│       ├── __init__.py
+│       ├── archive_handler.py
+│       ├── filesystem_utils.py
+│       ├── image_analyzer.py
+│       ├── packaging_worker.py
+│       └── path_validator.py
 ├── setup.py                    # Package setup and dependencies
 ├── README.md                   # Main documentation
 ├── Legacy/                     # Legacy scripts
@@ -31,15 +38,20 @@ cbxtools/
 ### Code Architecture - Shared Functions
 
 #### Critical: Single Source of Truth
-- `analyze_image_colorfulness()` and `should_convert_to_greyscale()` are the authoritative implementations in `conversion.py`
-- `debug_utils.py` imports these functions to ensure consistency
-- **Never duplicate core logic** - always import from `conversion.py`
-- Debug functions extend with additional statistics but use same core algorithms
+The authoritative greyscale detection logic lives in
+`cbxtools.core.image_analyzer.ImageAnalyzer`.
+`conversion.py` re-exports helper functions for backward compatibility, while
+`debug_utils.py`, `near_greyscale_scan.py` and other modules call into the
+`ImageAnalyzer` class. **Never duplicate core logic**—delegate to these core
+utilities so updates automatically propagate.
 
 #### Function Relationships
-- `debug_utils.py` provides `*_debug()` variants that add extended analysis
-- `near_greyscale_scan.py` imports directly from `conversion.py`
-- Any changes to conversion logic automatically apply to all modules
+- `debug_utils.py` provides `*_debug()` variants that call `ImageAnalyzer`
+  for the core decision logic
+- `conversion.py` wraps `ImageAnalyzer` methods for backward compatibility
+- `near_greyscale_scan.py` and `archives.py` use `ArchiveHandler` and
+  `ImageAnalyzer` from the `core` package
+- Any changes to `cbxtools.core` automatically apply to all modules
 
 ### 1. CLI Interface (`cli.py`)
 **Purpose**: Command-line argument parsing and application orchestration
@@ -224,7 +236,7 @@ Each preset can configure:
 
 ### User Configuration
 - Presets stored in `~/.cbxtools/presets.json`
-- Statistics stored in `~/.cbxtools/.cbx-tools-stats.json`
+- Statistics stored in `~/.cbx-tools-stats.json`
 - Watch mode history in output directory
 
 ### Debug Parameter Resolution
