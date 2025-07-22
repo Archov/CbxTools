@@ -22,7 +22,7 @@ CBXTools features a modern, modular architecture with consolidated core utilitie
 - Customizable WebP compression parameters and preprocessing filters
 - Manual grayscale and auto-contrast options
 - Sophisticated automatic greyscale detection with configurable thresholds
-- Directory watching mode to automatically process new archives, images and image folders
+- Directory watching mode automatically processes new archives, individual images and entire image folders
 - Built-in dependency checker with optional automatic installation
 - Persistent lifetime statistics tracking and detailed reports
 - Comprehensive debug utilities for analyzing greyscale detection

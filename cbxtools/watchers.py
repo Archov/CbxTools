@@ -18,7 +18,7 @@ from .core.archive_handler import ArchiveHandler
 from .core.image_analyzer import ImageAnalyzer
 from .core.filesystem_utils import FileSystemUtils
 from .core.packaging_worker import WatchModePackagingWorker
-from .conversion import process_single_file
+from .conversion import process_single_file, convert_single_image, convert_to_webp
 from .stats_tracker import print_lifetime_stats
 
 
@@ -109,6 +109,95 @@ def detect_new_image_folders(input_dir, processed_items, recursive=False):
     
     # Return folders that weren't processed before
     return current_folders - processed_items
+
+
+def process_single_image_file(image_file, output_dir, args, logger):
+    """Convert an individual image to WebP using convert_single_image."""
+    options = {
+        'quality': args.quality,
+        'max_width': args.max_width,
+        'max_height': args.max_height,
+        'method': args.method,
+        'preprocessing': args.preprocessing,
+        'lossless': args.lossless,
+        'grayscale': args.grayscale,
+        'auto_contrast': args.auto_contrast,
+        'auto_greyscale': getattr(args, 'auto_greyscale', False),
+        'auto_greyscale_pixel_threshold': getattr(args, 'auto_greyscale_pixel_threshold', 16),
+        'auto_greyscale_percent_threshold': getattr(args, 'auto_greyscale_percent_threshold', 0.01),
+        'preserve_auto_greyscale_png': getattr(args, 'preserve_auto_greyscale_png', False),
+        'output_dir': output_dir,
+        'verbose': args.verbose,
+    }
+
+    webp_output = output_dir / f"{image_file.stem}.webp"
+    try:
+        _, _, success, error, _ = convert_single_image((image_file, webp_output, options))
+        if success:
+            orig_size = image_file.stat().st_size
+            new_size = webp_output.stat().st_size
+            logger.info(f"Converted image: {image_file.name}")
+            return True, orig_size, new_size
+        else:
+            logger.error(f"Error converting {image_file}: {error}")
+            return False, 0, 0
+    except Exception as e:
+        logger.error(f"Error processing {image_file}: {e}")
+        return False, 0, 0
+
+
+def process_image_directory(image_dir, output_dir, args, logger, packaging_queue=None):
+    """Convert an image directory using convert_to_webp and optionally package."""
+    import shutil
+
+    file_output_dir = output_dir / image_dir.name
+
+    try:
+        convert_to_webp(
+            image_dir,
+            file_output_dir,
+            args.quality,
+            args.max_width,
+            args.max_height,
+            args.threads,
+            args.method,
+            args.preprocessing,
+            args.lossless,
+            logger,
+            args.grayscale,
+            args.auto_contrast,
+            getattr(args, 'auto_greyscale', False),
+            getattr(args, 'auto_greyscale_pixel_threshold', 16),
+            getattr(args, 'auto_greyscale_percent_threshold', 0.01),
+            getattr(args, 'preserve_auto_greyscale_png', False),
+            verbose=args.verbose,
+        )
+
+        orig_size = sum(f.stat().st_size for f in image_dir.rglob('*') if f.is_file())
+
+        if not args.no_cbz:
+            cbz_output = output_dir / f"{image_dir.name}.cbz"
+            if packaging_queue is not None:
+                result_dict = {"success": False, "new_size": 0}
+                packaging_queue.put((file_output_dir, cbz_output, image_dir, result_dict, args.zip_compression))
+                logger.info(f"Queued {image_dir.name} for packaging")
+                return True, orig_size, 0
+            else:
+                from .archives import create_cbz
+                create_cbz(file_output_dir, cbz_output, logger, args.zip_compression)
+                new_size = cbz_output.stat().st_size
+                if not args.keep_originals:
+                    shutil.rmtree(file_output_dir)
+                logger.info(f"Converted folder: {image_dir.name}")
+                return True, orig_size, new_size
+        else:
+            new_size = sum(f.stat().st_size for f in file_output_dir.rglob('*') if f.is_file())
+            logger.info(f"Converted folder: {image_dir.name}")
+            return True, orig_size, new_size
+
+    except Exception as e:
+        logger.error(f"Error processing folder {image_dir}: {e}")
+        return False, 0, 0
 
 
 def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
@@ -319,51 +408,68 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                 for item in unprocessed_items:
                     # Determine the relative path structure to preserve
                     if item.is_dir():
-                        # For image folders, use the folder's parent for relative path calculation
                         rel_path = item.parent.relative_to(input_dir)
-                        item_name = item.name
                         logger.info(f"Processing image folder: {item}")
                     else:
-                        # For individual files (archives or images)
                         rel_path = item.parent.relative_to(input_dir)
-                        item_name = item.name
                         logger.info(f"Processing: {item}")
-                    
+
                     target_output_dir = output_dir / rel_path
                     target_output_dir.mkdir(parents=True, exist_ok=True)
-                    
+
                     logger.debug(f"Output directory: {target_output_dir}")
 
-                    success, original_size, result = process_single_file(
-                        input_file=item,
-                        output_dir=target_output_dir,
-                        quality=args.quality,
-                        max_width=args.max_width,
-                        max_height=args.max_height,
-                        no_cbz=args.no_cbz,
-                        keep_originals=args.keep_originals,
-                        num_threads=conversion_threads,
-                        logger=logger,
-                        packaging_queue=packaging_queue,
-                        method=args.method,
-                        preprocessing=args.preprocessing,
-                        zip_compresslevel=args.zip_compression,
-                        lossless=args.lossless,
-                        grayscale=args.grayscale,
-                        auto_contrast=args.auto_contrast,
-                        auto_greyscale=getattr(args, 'auto_greyscale', False),
-                        auto_greyscale_pixel_threshold=getattr(
+                    if item.is_file() and ArchiveHandler.is_supported_archive(item):
+                        success, original_size, result = process_single_file(
+                            input_file=item,
+                            output_dir=target_output_dir,
+                            quality=args.quality,
+                            max_width=args.max_width,
+                            max_height=args.max_height,
+                            no_cbz=args.no_cbz,
+                            keep_originals=args.keep_originals,
+                            num_threads=conversion_threads,
+                            logger=logger,
+                            packaging_queue=packaging_queue,
+                            method=args.method,
+                            preprocessing=args.preprocessing,
+                            zip_compresslevel=args.zip_compression,
+                            lossless=args.lossless,
+                            grayscale=args.grayscale,
+                            auto_contrast=args.auto_contrast,
+                            auto_greyscale=getattr(args, 'auto_greyscale', False),
+                            auto_greyscale_pixel_threshold=getattr(
+                                args,
+                                'auto_greyscale_pixel_threshold',
+                                16,
+                            ),
+                            auto_greyscale_percent_threshold=getattr(
+                                args,
+                                'auto_greyscale_percent_threshold',
+                                0.01,
+                            ),
+                            verbose=args.verbose,
+                        )
+                    elif item.is_file() and ImageAnalyzer.is_image_file(item):
+                        success, original_size, result = process_single_image_file(
+                            item,
+                            target_output_dir,
                             args,
-                            'auto_greyscale_pixel_threshold',
-                            16,
-                        ),
-                        auto_greyscale_percent_threshold=getattr(
+                            logger,
+                        )
+                    elif item.is_dir():
+                        success, original_size, result = process_image_directory(
+                            item,
+                            target_output_dir,
                             args,
-                            'auto_greyscale_percent_threshold',
-                            0.01,
-                        ),
-                        verbose=args.verbose,
-                    )
+                            logger,
+                            packaging_queue=packaging_queue,
+                        )
+                    else:
+                        logger.warning(f"Unsupported item: {item}")
+                        processed_files.add(item)
+                        save_history()
+                        continue
 
                     if success:
                         # Handle direct result vs async result

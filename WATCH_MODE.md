@@ -14,12 +14,13 @@ Watch mode leverages the consolidated architecture for improved performance:
 
 ## Key Features
 
-- **Multi-format Detection**: Automatically detects new CBZ, CBR and CB7 archives as well as loose images or entire image folders
+- **Multi-format Detection**: Automatically detects and converts new CBZ, CBR and CB7 archives, individual images and entire image folders
 - **Structure Preservation**: Maintains the original directory structure in the output folder using `PathValidator`
 - **Optimized Packaging**: Uses `WatchModePackagingWorker` for concurrent image conversion and CBZ creation
 - **Persistent History**: Maintains a history file to avoid re-processing files between sessions
 - **Smart Cleanup**: Optional deletion of originals with intelligent empty directory removal via `FileSystemUtils`
 - **Full Feature Support**: Works with all transformation options including automatic greyscale detection and presets
+- **Image Handling**: Loose images are converted to WebP directly while image folders are converted and packaged into CBZ unless `--no_cbz` is specified
 - **Statistics Integration**: Lifetime statistics are updated as items are processed using consolidated tracking
 - **Consistent Logging**: Unified error handling and progress reporting across all operations
 
