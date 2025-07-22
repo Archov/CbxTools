@@ -307,7 +307,7 @@ def parse_arguments():
     parser.add_argument('--silent', '-s', action='store_true',
                         help='Suppress all output except errors')
     parser.add_argument('--stats-file', type=str, default=None,
-                        help='Path to stats file (default: ~/.cbx-tools-stats.json)')
+                        help='Path to stats file (default: ~/.cbxtools/.cbx-tools-stats.json)')
     parser.add_argument('--no-stats', action='store_true',
                         help='Do not update or display lifetime statistics')
     parser.add_argument('--stats-only', action='store_true',
