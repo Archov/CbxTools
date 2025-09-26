@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Debug utilities for auto-greyscale functionality.
+Now uses consolidated utilities.
 """
 
 import json
@@ -10,87 +11,20 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-# Import the actual conversion functions to ensure consistency
-from .conversion import analyze_image_colorfulness, should_convert_to_greyscale
+# Import consolidated utilities
+from .core.image_analyzer import ImageAnalyzer
+from .core.archive_handler import ArchiveHandler
 
 
+# Re-export for backward compatibility with debug interface
 def analyze_image_colorfulness_debug(img_array, pixel_threshold=16):
-    """
-    Analyze if an image is effectively greyscale by checking pixel color variation.
-    Extended debug version that returns additional statistics.
-    
-    Args:
-        img_array: numpy array of image data (RGB)
-        pixel_threshold: threshold for considering a pixel "colored"
-    
-    Returns:
-        dict: Extended debug information including all statistics
-    """
-    # Use the main conversion function for core analysis
-    max_diff, mean_diff, colored_ratio = analyze_image_colorfulness(img_array, pixel_threshold)
-    
-    # Add extended debug statistics
-    diffs = img_array.max(axis=2).astype(int) - img_array.min(axis=2).astype(int)
-    std_diff = float(diffs.std())
-    median_diff = float(np.median(diffs))
-    percentile_95 = float(np.percentile(diffs, 95))
-    percentile_99 = float(np.percentile(diffs, 99))
-    
-    # Count pixels in different ranges
-    colored_pixels = int(np.count_nonzero(diffs > pixel_threshold))
-    very_colored = int(np.count_nonzero(diffs > pixel_threshold * 2))
-    slightly_colored = int(np.count_nonzero((diffs > pixel_threshold) & (diffs <= pixel_threshold * 2)))
-    total_pixels = diffs.size
-    
-    return {
-        'max_diff': max_diff,
-        'mean_diff': mean_diff,
-        'std_diff': std_diff,
-        'median_diff': median_diff,
-        'percentile_95': percentile_95,
-        'percentile_99': percentile_99,
-        'colored_pixels': colored_pixels,
-        'very_colored_pixels': very_colored,
-        'slightly_colored_pixels': slightly_colored,
-        'total_pixels': total_pixels,
-        'colored_ratio': colored_ratio,
-        'very_colored_ratio': very_colored / total_pixels,
-        'slightly_colored_ratio': slightly_colored / total_pixels,
-        'pixel_threshold_used': pixel_threshold,
-        'image_shape': img_array.shape
-    }
+    """Extended debug version that returns additional statistics."""
+    return ImageAnalyzer.analyze_colorfulness_detailed(img_array, pixel_threshold)
 
 
 def should_convert_to_greyscale_debug(img_array, pixel_threshold=16, percent_threshold=0.01):
-    """
-    Determine if an image should be converted to greyscale based on color analysis.
-    Debug version that returns detailed analysis.
-    
-    Args:
-        img_array: numpy array of image data (RGB)
-        pixel_threshold: per-pixel difference threshold for "colored" pixels
-        percent_threshold: fraction of colored pixels above which image is considered colorful
-    
-    Returns:
-        tuple: (decision, debug_info)
-    """
-    # Use the main conversion function for the decision
-    decision = should_convert_to_greyscale(img_array, pixel_threshold, percent_threshold)
-    
-    # Get extended debug information
-    analysis = analyze_image_colorfulness_debug(img_array, pixel_threshold)
-    
-    # Add decision information
-    analysis['decision'] = decision
-    analysis['percent_threshold_used'] = percent_threshold
-    
-    # Generate decision reason based on the actual logic
-    if analysis['colored_pixels'] == 0:
-        analysis['decision_reason'] = "colored_pixels is 0 (already effectively greyscale)"
-    else:
-        analysis['decision_reason'] = f"colored_ratio ({analysis['colored_ratio']:.4f}) {'<=' if decision else '>'} percent_threshold ({percent_threshold})"
-    
-    return decision, analysis
+    """Determine if image should be converted to greyscale with detailed analysis."""
+    return ImageAnalyzer.should_convert_to_greyscale_detailed(img_array, pixel_threshold, percent_threshold)
 
 
 def save_debug_analysis(image_path, analysis, output_dir, logger):
@@ -261,18 +195,7 @@ def debug_archive_greyscale(archive_path, output_dir=None,
             
             # Extract the archive
             try:
-                import zipfile
-                import patoolib
-                
-                file_ext = archive_path.suffix.lower()
-                if file_ext in ('.cbz', '.zip'):
-                    with zipfile.ZipFile(archive_path, 'r') as zip_ref:
-                        zip_ref.extractall(temp_path)
-                elif file_ext in ('.cbr', '.rar'):
-                    patoolib.extract_archive(str(archive_path), outdir=str(temp_path))
-                else:
-                    logger.error(f"Unsupported archive format: {file_ext}")
-                    return None
+                ArchiveHandler.extract_archive(archive_path, temp_path, logger)
             except Exception as e:
                 logger.error(f"Error extracting archive: {e}")
                 return None

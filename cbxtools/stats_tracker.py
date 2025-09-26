@@ -8,7 +8,7 @@ import json
 import datetime
 from pathlib import Path
 
-from .utils import get_file_size_formatted
+from .core.filesystem_utils import FileSystemUtils
 
 
 class StatsTracker:
@@ -16,7 +16,7 @@ class StatsTracker:
     
     def __init__(self, stats_file=None):
         if stats_file is None:
-            self.stats_file = Path.home() / '.cbxtools//.cbx-tools-stats.json'
+            self.stats_file = Path.home() / '.cbxtools' / '.cbx-tools-stats.json'
         else:
             self.stats_file = Path(stats_file)
         self.stats = self._load_stats()
@@ -81,9 +81,9 @@ class StatsTracker:
         else:
             lifetime_savings_pct = 0
         
-        total_original = get_file_size_formatted(self.stats["total_original_size_bytes"])[0]
-        total_new = get_file_size_formatted(self.stats["total_new_size_bytes"])[0]
-        total_saved = get_file_size_formatted(self.stats["total_bytes_saved"])[0]
+        total_original = FileSystemUtils.get_file_size_formatted(self.stats["total_original_size_bytes"])[0]
+        total_new = FileSystemUtils.get_file_size_formatted(self.stats["total_new_size_bytes"])[0]
+        total_saved = FileSystemUtils.get_file_size_formatted(self.stats["total_bytes_saved"])[0]
 
         try:
             first_run = datetime.datetime.fromisoformat(self.stats["first_run"]).strftime("%Y-%m-%d")
@@ -115,9 +115,9 @@ def print_summary_report(processed_files, total_original_size, total_new_size, l
     else:
         total_pct = 0
 
-    total_original_fmt, _ = get_file_size_formatted(total_original_size)
-    total_new_fmt, _ = get_file_size_formatted(total_new_size)
-    diff_fmt, _ = get_file_size_formatted(abs(total_diff))
+    total_original_fmt, _ = FileSystemUtils.get_file_size_formatted(total_original_size)
+    total_new_fmt, _ = FileSystemUtils.get_file_size_formatted(total_new_size)
+    diff_fmt, _ = FileSystemUtils.get_file_size_formatted(abs(total_diff))
 
     logger.info("\n" + "=" * 80)
     logger.info("CONVERSION SUMMARY REPORT")
@@ -129,15 +129,14 @@ def print_summary_report(processed_files, total_original_size, total_new_size, l
         logger.info("-" * 80)
         for filename, orig_size, new_size in processed_files:
             if new_size > 0:
-                orig_fmt, _ = get_file_size_formatted(orig_size)
-                new_fmt, _ = get_file_size_formatted(new_size)
+                orig_fmt, _ = FileSystemUtils.get_file_size_formatted(orig_size)
+                new_fmt, _ = FileSystemUtils.get_file_size_formatted(new_size)
                 diff = orig_size - new_size
-                diff_fmt_item, _ = get_file_size_formatted(abs(diff))
+                diff_fmt_item, _ = FileSystemUtils.get_file_size_formatted(abs(diff))
                 if orig_size > 0:
                     pct = (diff / orig_size) * 100
                     pct_str = f"{pct:.1f}%"
-                    if diff < 0:
-                        pct_str = f"-{pct_str}"
+                    # pct already carries the sign
                 else:
                     pct_str = "N/A"
                 logger.info(
