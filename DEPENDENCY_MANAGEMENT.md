@@ -198,12 +198,13 @@ except ImportError:
 
 ### ImageAnalyzer
 ```python
-# Gracefully degrades without numpy
+# Requires numpy for analysis; raises a clear error if missing
 try:
     import numpy as np
+    _HAS_NUMPY = True
 except ImportError:
-    # Falls back to pure Python implementation
     np = None
+    _HAS_NUMPY = False
 ```
 
 ### Debug Utilities

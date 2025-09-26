@@ -73,16 +73,22 @@ def convert_single_image(args):
             # Auto-greyscale detection and conversion with enhanced B&W processing
             was_auto_converted = False
             if auto_greyscale and img.mode in ('RGB', 'RGBA'):
-                img_array = np.array(img)
-                if should_convert_to_greyscale(
-                    img_array, 
-                    auto_greyscale_pixel_threshold, 
-                    auto_greyscale_percent_threshold
-                ):
+                # Convert to RGB array and drop alpha if present for analysis
+                arr = np.array(img.convert('RGB'))
+                try:
+                    decision = should_convert_to_greyscale(
+                        arr,
+                        auto_greyscale_pixel_threshold,
+                        auto_greyscale_percent_threshold
+                    )
+                except RuntimeError:
+                    debug_print("DEBUG: Auto-greyscale skipped (NumPy unavailable)")
+                    decision = False
+                if decision:
                     # Debug logging for conversion decision
                     debug_print(f"DEBUG: Auto-greyscale triggered for {img_path.name}")
-                    debug_print(f"DEBUG: Image mode: {img.mode}, Array shape: {img_array.shape}")
-                    
+                    debug_print(f"DEBUG: Image mode: {img.mode}, Array shape: {arr.shape}")
+
                     # Use enhanced B&W conversion like your B&W.py script
                     img = convert_to_bw_with_contrast(img)
                     was_auto_converted = True
@@ -90,9 +96,12 @@ def convert_single_image(args):
                 else:
                     debug_print(f"DEBUG: Auto-greyscale NOT triggered for {img_path.name}")
                     # Show the analysis for debugging
-                    max_diff, mean_diff, colored_ratio = analyze_image_colorfulness(
-                        img_array, auto_greyscale_pixel_threshold
-                    )
+                    try:
+                        max_diff, mean_diff, colored_ratio = analyze_image_colorfulness(
+                            arr, auto_greyscale_pixel_threshold
+                        )
+                    except RuntimeError:
+                        max_diff = mean_diff = colored_ratio = 0
                     debug_print(f"DEBUG: Analysis - max_diff: {max_diff}, mean_diff: {mean_diff:.6f}, colored_ratio: {colored_ratio:.6f}")
                     debug_print(f"DEBUG: Thresholds - pixel: {auto_greyscale_pixel_threshold}, percent: {auto_greyscale_percent_threshold}")
             elif auto_greyscale:
@@ -125,7 +134,7 @@ def convert_single_image(args):
             if scale_factor < 1.0:
                 new_w = int(width * scale_factor)
                 new_h = int(height * scale_factor)
-                img = img.resize((new_w, new_h), Image.LANCZOS)
+                img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
             
             # Apply preprocessing if requested
             if preprocessing == 'unsharp_mask':

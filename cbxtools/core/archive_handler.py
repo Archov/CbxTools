@@ -51,7 +51,7 @@ class ArchiveHandler:
                     raise ValueError(f"Unsafe absolute path in ZIP entry: {m.filename}")
                 target = (dest / name).resolve()
                 # Disallow traversal outside dest
-                if not str(target).startswith(str(dest) + os.sep):
+                if os.path.commonpath([str(dest), str(target)]) != str(dest):
                     raise ValueError(f"Path traversal detected in ZIP entry: {m.filename}")
                 if m.is_dir():
                     target.mkdir(parents=True, exist_ok=True)
@@ -73,7 +73,7 @@ class ArchiveHandler:
                 if name.is_absolute():
                     raise ValueError(f"Unsafe absolute path in RAR entry: {m.filename}")
                 target = (dest / name).resolve()
-                if not str(target).startswith(str(dest) + os.sep):
+                if os.path.commonpath([str(dest), str(target)]) != str(dest):
                     raise ValueError(f"Path traversal detected in RAR entry: {m.filename}")
                 if m.isdir():
                     target.mkdir(parents=True, exist_ok=True)
@@ -96,7 +96,7 @@ class ArchiveHandler:
                 if p.is_absolute():
                     raise ValueError(f"Unsafe absolute path in 7z entry: {name}")
                 target = (dest / p).resolve()
-                if not str(target).startswith(str(dest) + os.sep):
+                if os.path.commonpath([str(dest), str(target)]) != str(dest):
                     raise ValueError(f"Path traversal detected in 7z entry: {name}")
                 safe.append(name)
             if safe:

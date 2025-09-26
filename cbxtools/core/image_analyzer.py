@@ -31,8 +31,11 @@ class ImageAnalyzer:
         """
         if not _HAS_NUMPY:
             raise RuntimeError("analyze_colorfulness requires numpy; please install numpy or use fallback")
-        # Calculate per-pixel difference between max and min RGB values
-        diffs = img_array.max(axis=2).astype(int) - img_array.min(axis=2).astype(int)
+        # Calculate per-pixel difference between max and min RGB values (ignore alpha if present)
+        arr = img_array
+        if arr.ndim == 3 and arr.shape[2] > 3:
+            arr = arr[:, :, :3]
+        diffs = arr.max(axis=2).astype(int) - arr.min(axis=2).astype(int)
         max_diff = int(diffs.max())
         mean_diff = float(diffs.mean())
         colored_pixels = int(np.count_nonzero(diffs > pixel_threshold))

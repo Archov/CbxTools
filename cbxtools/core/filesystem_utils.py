@@ -47,9 +47,14 @@ class FileSystemUtils:
         # Convert to Path objects if they aren't already
         directory = Path(directory)
         root_dir = Path(root_dir)
-        
-        # Don't attempt to remove the root directory or any directory outside the root
-        if directory == root_dir or not str(directory).startswith(str(root_dir)):
+
+        # Resolve and ensure directory is under root_dir; never remove the root itself
+        directory = directory.resolve()
+        root_dir = root_dir.resolve()
+        if directory == root_dir:
+            return
+        import os
+        if os.path.commonpath([str(directory), str(root_dir)]) != str(root_dir):
             return
         
         # Check if directory exists and is a directory
