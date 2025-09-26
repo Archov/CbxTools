@@ -15,10 +15,25 @@ class ArchiveHandler:
 
     SUPPORTED_EXTENSIONS: ClassVar[set[str]] = {'.cbz', '.cbr', '.cb7', '.zip', '.rar', '.7z'}
     
+    # Format to extension mapping
+    FORMAT_EXTENSIONS = {
+        'zip': '.zip',
+        'cbz': '.cbz', 
+        'rar': '.rar',
+        'cbr': '.cbr',
+        '7z': '.7z',
+        'cb7': '.cb7'
+    }
+    
     @classmethod
     def is_supported_archive(cls, file_path):
         """Check if file is a supported archive format."""
         return Path(file_path).suffix.lower() in cls.SUPPORTED_EXTENSIONS
+    
+    @classmethod
+    def get_extension_for_format(cls, format_type):
+        """Get the file extension for a given format type."""
+        return cls.FORMAT_EXTENSIONS.get(format_type.lower(), '.cbz')
     
     @classmethod
     def extract_archive(cls, archive_path, extract_dir, logger=None):
@@ -105,8 +120,13 @@ class ArchiveHandler:
     @classmethod
     def create_cbz(cls, source_dir, output_file, logger=None, compresslevel=9):
         """Create CBZ archive from directory with optimized compression."""
+        return cls.create_archive(source_dir, output_file, 'cbz', logger, compresslevel)
+    
+    @classmethod
+    def create_archive(cls, source_dir, output_file, format_type, logger=None, compresslevel=9):
+        """Create archive from directory in specified format."""
         if logger:
-            logger.info(f"Creating CBZ file: {output_file} (compression level: {compresslevel})")
+            logger.info(f"Creating {format_type.upper()} file: {output_file} (compression level: {compresslevel})")
 
         # Count file types for reporting
         image_count = 0
@@ -128,7 +148,19 @@ class ArchiveHandler:
         # Sort files - typically comic pages are numbered sequentially
         all_files.sort(key=lambda x: str(x[1]))
 
-        # Use maximum compression for smaller files
+        # Create archive based on format
+        if format_type in ('zip', 'cbz'):
+            cls._create_zip_archive(output_file, all_files, compresslevel, logger, image_count, other_count)
+        elif format_type in ('rar', 'cbr'):
+            cls._create_rar_archive(output_file, all_files, logger, image_count, other_count)
+        elif format_type in ('7z', 'cb7'):
+            cls._create_7z_archive(output_file, all_files, logger, image_count, other_count)
+        else:
+            raise ValueError(f"Unsupported output format: {format_type}")
+    
+    @staticmethod
+    def _create_zip_archive(output_file, all_files, compresslevel, logger, image_count, other_count):
+        """Create ZIP/CBZ archive."""
         with zipfile.ZipFile(output_file, 'w', zipfile.ZIP_DEFLATED, compresslevel=compresslevel) as zipf:
             file_count = 0
             for file_path, rel_path in all_files:
@@ -141,6 +173,52 @@ class ArchiveHandler:
                                f"({image_count} WebP images, {other_count} other files)")
                 else:
                     logger.debug(f"Added {file_count} WebP images to {output_file}")
+    
+    @staticmethod
+    def _create_rar_archive(output_file, all_files, logger, image_count, other_count):
+        """Create RAR/CBR archive."""
+        try:
+            import rarfile
+            # Note: rarfile doesn't support creating RAR files, only reading
+            # For now, we'll create a ZIP file with .cbr extension as a fallback
+            if logger:
+                logger.warning("RAR creation not supported, creating ZIP with .cbr extension instead")
+            
+            # Create as ZIP but with .cbr extension
+            with zipfile.ZipFile(output_file, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
+                file_count = 0
+                for file_path, rel_path in all_files:
+                    zipf.write(file_path, rel_path)
+                    file_count += 1
+
+                if logger:
+                    if other_count > 0:
+                        logger.debug(f"Added {file_count} files to {output_file} "
+                                   f"({image_count} WebP images, {other_count} other files)")
+                    else:
+                        logger.debug(f"Added {file_count} WebP images to {output_file}")
+        except ImportError:
+            raise ImportError("rarfile is required for RAR/CBR output format")
+    
+    @staticmethod
+    def _create_7z_archive(output_file, all_files, logger, image_count, other_count):
+        """Create 7Z/CB7 archive."""
+        try:
+            import py7zr
+            with py7zr.SevenZipFile(output_file, 'w') as archive:
+                file_count = 0
+                for file_path, rel_path in all_files:
+                    archive.write(file_path, rel_path)
+                    file_count += 1
+
+                if logger:
+                    if other_count > 0:
+                        logger.debug(f"Added {file_count} files to {output_file} "
+                                   f"({image_count} WebP images, {other_count} other files)")
+                    else:
+                        logger.debug(f"Added {file_count} WebP images to {output_file}")
+        except ImportError:
+            raise ImportError("py7zr is required for 7Z/CB7 output format")
     
     @classmethod
     def find_archives(cls, directory, recursive=False):

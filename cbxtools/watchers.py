@@ -179,16 +179,20 @@ def process_image_directory(image_dir, output_dir, args, logger, packaging_queue
         orig_size = sum(f.stat().st_size for f in image_dir.rglob('*') if f.is_file())
 
         if not args.no_cbz:
-            cbz_output = output_dir / f"{image_dir.name}.cbz"
+            # Get the correct extension for the output format
+            from .core.archive_handler import ArchiveHandler
+            extension = ArchiveHandler.get_extension_for_format(getattr(args, 'output', 'cbz'))
+            archive_output = output_dir / f"{image_dir.name}{extension}"
+            
             if packaging_queue is not None:
                 result_dict = {"success": False, "new_size": 0}
-                packaging_queue.put((file_output_dir, cbz_output, image_dir, result_dict, args.zip_compression))
+                packaging_queue.put((file_output_dir, archive_output, image_dir, result_dict, getattr(args, 'output', 'cbz'), args.zip_compression))
                 logger.info(f"Queued {image_dir.name} for packaging")
                 return True, orig_size, 0
             else:
-                from .archives import create_cbz
-                create_cbz(file_output_dir, cbz_output, logger, args.zip_compression)
-                new_size = cbz_output.stat().st_size
+                from .archives import create_archive
+                create_archive(file_output_dir, archive_output, getattr(args, 'output', 'cbz'), logger, args.zip_compression)
+                new_size = archive_output.stat().st_size
                 if not args.keep_originals:
                     shutil.rmtree(file_output_dir)
                 logger.info(f"Converted folder: {image_dir.name}")
@@ -309,14 +313,19 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                         packaging_queue.task_done()
                         break
 
-                    if len(item) >= 5:
-                        file_output_dir, cbz_output, input_file, result_dict, zip_compresslevel = item
+                    # Handle both old and new queue item formats
+                    if len(item) >= 6:
+                        file_output_dir, archive_output, input_file, result_dict, format_type, zip_compresslevel = item
+                    elif len(item) >= 5:
+                        file_output_dir, archive_output, input_file, result_dict, zip_compresslevel = item
+                        format_type = 'cbz'  # Default
                     else:
-                        file_output_dir, cbz_output, input_file, result_dict = item
-                        zip_compresslevel = 9
+                        file_output_dir, archive_output, input_file, result_dict = item
+                        format_type = 'cbz'  # Default
+                        zip_compresslevel = 9  # Default
 
                     success, new_size = worker.package_single(
-                        file_output_dir, cbz_output, input_file, zip_compresslevel
+                        file_output_dir, archive_output, input_file, format_type, zip_compresslevel
                     )
 
                     result_dict["success"] = success
@@ -454,6 +463,7 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                                 'auto_greyscale_percent_threshold',
                                 0.01,
                             ),
+                            output_format=getattr(args, 'output', 'cbz'),
                             verbose=args.verbose,
                         )
                     elif item.is_file() and ImageAnalyzer.is_image_file(item):

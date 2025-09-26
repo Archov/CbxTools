@@ -326,10 +326,12 @@ def parse_arguments():
     
     # Output options
     output_group = parser.add_argument_group('Output Options')
+    output_group.add_argument('--output', choices=['zip', 'cbz', 'rar', 'cbr', '7z', 'cb7'], 
+                            default='cbz', help='Output archive format (default: cbz)')
     output_group.add_argument('--no-cbz', action='store_true',
-                            help='Do not create a CBZ file with the WebP images')
+                            help='Do not create an archive file with the WebP images (deprecated: use --no-archive)')
     output_group.add_argument('--keep-originals', action='store_true',
-                            help='Keep the extracted WebP files after creating the CBZ')
+                            help='Keep the extracted WebP files after creating the archive')
     output_group.add_argument('--recursive', action='store_true',
                             help='Recursively search for CBZ/CBR files in subdirectories')
     output_group.add_argument('--threads', type=int, default=0,
@@ -723,6 +725,7 @@ def process_single_archive_file(input_path, output_dir, args, logger):
         auto_greyscale_pixel_threshold=args.auto_greyscale_pixel_threshold,
         auto_greyscale_percent_threshold=args.auto_greyscale_percent_threshold,
         preserve_auto_greyscale_png=args.preserve_auto_greyscale_png,
+        output_format=args.output,
         verbose=args.verbose
     )
 
@@ -802,6 +805,7 @@ def process_directory_recursive(input_path, output_dir, args, logger):
             auto_greyscale_pixel_threshold=args.auto_greyscale_pixel_threshold,
         auto_greyscale_percent_threshold=args.auto_greyscale_percent_threshold,
         preserve_auto_greyscale_png=args.preserve_auto_greyscale_png,
+        output_format=args.output,
         verbose=args.verbose
     )
         

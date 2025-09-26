@@ -397,14 +397,18 @@ def cbz_packaging_worker(packaging_queue, logger, keep_originals):
             break
 
         # Handle both old and new item formats
-        if len(item) >= 5:
-            file_output_dir, cbz_output, input_file, result_dict, zip_compresslevel = item
+        if len(item) >= 6:
+            file_output_dir, archive_output, input_file, result_dict, format_type, zip_compresslevel = item
+        elif len(item) >= 5:
+            file_output_dir, archive_output, input_file, result_dict, zip_compresslevel = item
+            format_type = 'cbz'  # Default
         else:
-            file_output_dir, cbz_output, input_file, result_dict = item
+            file_output_dir, archive_output, input_file, result_dict = item
+            format_type = 'cbz'  # Default
             zip_compresslevel = 9  # Default
         
         success, new_size = worker.package_single(
-            file_output_dir, cbz_output, input_file, zip_compresslevel
+            file_output_dir, archive_output, input_file, format_type, zip_compresslevel
         )
         
         result_dict["success"] = success
@@ -434,6 +438,7 @@ def process_single_file(
     auto_greyscale_pixel_threshold=16,     # Pixel difference threshold for auto-greyscale
     auto_greyscale_percent_threshold=0.01, # Percentage threshold for auto-greyscale
     preserve_auto_greyscale_png=False,     # Preserve intermediate PNG files for debugging
+    output_format='cbz',   # Output archive format
     verbose=False
 ):
     """Process a single CBZ/CBR file with optimized parameters from presets."""
@@ -474,22 +479,26 @@ def process_single_file(
             )
 
             if not no_cbz:
-                # Create the CBZ file with the same name as input file but in output_dir
-                cbz_output = output_dir / f"{input_file.stem}.cbz"
+                # Get the correct extension for the output format
+                from .core.archive_handler import ArchiveHandler
+                extension = ArchiveHandler.get_extension_for_format(output_format)
+                archive_output = output_dir / f"{input_file.stem}{extension}"
+                
                 # If using pipelined approach
                 if packaging_queue is not None:
                     result_dict = {"success": False, "new_size": 0}
-                    # Include the compression level in the queue item
-                    packaging_queue.put((file_output_dir, cbz_output, input_file, result_dict, zip_compresslevel))
+                    # Include the format type and compression level in the queue item
+                    packaging_queue.put((file_output_dir, archive_output, input_file, result_dict, output_format, zip_compresslevel))
                     logger.info(f"Queued {input_file.name} for packaging")
                     # Return the orig_size_bytes and a placeholder for new_size
                     # The actual size will be determined by the packaging worker
                     logger.info(f"Conversion of {input_file.name} completed successfully!")
                     return True, orig_size_bytes, 0  # Return 0 for new_size, will be updated by worker
                 else:
-                    # Synchronous approach - use the compression level
-                    create_cbz(file_output_dir, cbz_output, logger, zip_compresslevel)
-                    new_size_str, new_size_bytes = FileSystemUtils.get_file_size_formatted(cbz_output)
+                    # Synchronous approach - use the new create_archive method
+                    from .archives import create_archive
+                    create_archive(file_output_dir, archive_output, output_format, logger, zip_compresslevel)
+                    new_size_str, new_size_bytes = FileSystemUtils.get_file_size_formatted(archive_output)
                     size_diff_bytes = orig_size_bytes - new_size_bytes
 
                     if orig_size_bytes > 0:
@@ -588,6 +597,7 @@ def process_archive_files(archives, output_dir, args, logger):
                 auto_greyscale_pixel_threshold=auto_greyscale_pixel_threshold,
                 auto_greyscale_percent_threshold=auto_greyscale_percent_threshold,
                 preserve_auto_greyscale_png=preserve_auto_greyscale_png,
+                output_format=getattr(args, 'output', 'cbz'),
                 verbose=args.verbose
             )
             if success:
@@ -630,6 +640,7 @@ def process_archive_files(archives, output_dir, args, logger):
                 auto_greyscale_pixel_threshold=auto_greyscale_pixel_threshold,
                 auto_greyscale_percent_threshold=auto_greyscale_percent_threshold,
                 preserve_auto_greyscale_png=preserve_auto_greyscale_png,
+                output_format=getattr(args, 'output', 'cbz'),
                 verbose=args.verbose
             )
             if success:
