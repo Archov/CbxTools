@@ -77,7 +77,7 @@ class FileProcessor:
         from ..conversion import process_single_file
         # Validate and normalize output format
         output_format = getattr(args, 'output', 'cbz')
-        supported = ArchiveHandler.get_supported_formats()
+        supported = ArchiveHandler.get_creatable_formats()
         if str(output_format).lower() not in supported:
             raise ValueError(f"Unsupported output format: {output_format}. Supported: {', '.join(supported)}")
         return process_single_file(
@@ -177,7 +177,7 @@ class FileProcessor:
             if not args.no_cbz:
                 # Validate and normalize output format
                 output_format = str(getattr(args, 'output', 'cbz')).lower()
-                supported = ArchiveHandler.get_supported_formats()
+                supported = ArchiveHandler.get_creatable_formats()
                 if output_format not in supported:
                     raise ValueError(f"Unsupported output format: {output_format}. Supported: {', '.join(supported)}")
                 # Get the correct extension for the output format

@@ -218,10 +218,10 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
         packaging_thread.start()
 
     # Reserve 1 thread for packaging, use (threads - 1) for image conversion
-    if args.threads > 0:
-        conversion_threads = max(1, args.threads - 1)
-    else:
-        conversion_threads = max(1, multiprocessing.cpu_count() - 1)
+    # (Reserved for future use if conversion thread pool is introduced)
+    
+    # Create unified processor once
+    processor = FileProcessor(logger, packaging_queue)
 
     # Statistics to track during this watch session
     session_start_time = time.time()
@@ -266,6 +266,9 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                         processed_files.add(input_file)
                         save_history()
                         
+                        # Clean up after successful packaging (delete originals if requested)
+                        processor.cleanup_after_processing(input_file, True, args, input_dir)
+                        
                     elif not result["success"] and input_file in pending_results:
                         # Packaging failed - log error and remove from pending
                         # Do NOT add to processed_files so it can be retried
@@ -293,9 +296,6 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
 
             if unprocessed_items:
                 logger.info(f"Found {len(unprocessed_items)} new item(s) to process")
-
-                # Create unified processor
-                processor = FileProcessor(logger, packaging_queue)
                 
                 for item in unprocessed_items:
                     logger.info(f"Processing: {item}")
@@ -314,6 +314,7 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                         if not args.no_cbz and not ImageAnalyzer.is_image_file(item):
                             # Track the pending result for later statistics update (archives and folders)
                             # Do NOT add to processed_files yet - wait for packaging success
+                            # Do NOT cleanup yet - wait for packaging success
                             pending_results[item] = original_size
                         else:
                             # Direct result for no_cbz or individual images - update stats immediately
@@ -334,9 +335,9 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                             # Mark as processed immediately for direct results
                             processed_files.add(item)
                             save_history()
-
-                        # Clean up after processing (delete originals if requested)
-                        processor.cleanup_after_processing(item, success, args, input_dir)
+                            
+                            # Clean up after processing (delete originals if requested) - only for direct results
+                            processor.cleanup_after_processing(item, success, args, input_dir)
                     else:
                         logger.error(f"Failed to process {item}")
                         # Do NOT add to processed_files on failure - allow retry on next scan
@@ -386,6 +387,9 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                         # Mark as processed now that packaging succeeded
                         processed_files.add(input_file)
                         save_history()
+                        
+                        # Clean up after successful packaging (delete originals if requested)
+                        processor.cleanup_after_processing(input_file, True, args, input_dir)
                         
                         # Update lifetime stats for the final batch
                         if stats_enabled:

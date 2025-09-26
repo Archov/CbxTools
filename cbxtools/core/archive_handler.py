@@ -45,6 +45,12 @@ class ArchiveHandler:
         return tuple(cls.FORMAT_EXTENSIONS.keys())
     
     @classmethod
+    def get_creatable_formats(cls) -> tuple[str, ...]:
+        """Formats we can create (write)."""
+        # RAR/CBR creation is not supported; extraction-only.
+        return tuple(f for f in cls.FORMAT_EXTENSIONS.keys() if f not in ('rar', 'cbr'))
+    
+    @classmethod
     def extract_archive(cls, archive_path, extract_dir, logger=None):
         """Extract archive to directory using appropriate method."""
         file_ext = Path(archive_path).suffix.lower()
@@ -178,7 +184,7 @@ class ArchiveHandler:
         }
         creator = creators.get(fmt)
         if not creator:
-            supported = ', '.join(cls.get_supported_formats())
+            supported = ', '.join(cls.get_creatable_formats())
             raise ValueError(f"Unsupported output format: {format_type}. Supported formats are: {supported}")
         creator(output_file, all_files, compresslevel, logger, image_count, other_count)
     
