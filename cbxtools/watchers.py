@@ -18,55 +18,14 @@ from .core.archive_handler import ArchiveHandler
 from .core.image_analyzer import ImageAnalyzer
 from .core.filesystem_utils import FileSystemUtils
 from .core.packaging_worker import WatchModePackagingWorker
+from .core.file_processor import FileProcessor, find_processable_items
 from .conversion import process_single_file, convert_single_image, convert_to_webp
 from .stats_tracker import print_lifetime_stats
 
 
 def find_all_watchable_items(directory, recursive=False):
     """Find all items that can be watched and processed (archives, images, and image folders)."""
-    items = []
-    
-    # Find archives
-    archives = find_comic_archives(directory, recursive)
-    items.extend(archives)
-    
-    # Find individual images in the root directory
-    if directory.is_dir():
-        direct_images = [f for f in directory.iterdir() if f.is_file() and ImageAnalyzer.is_image_file(f)]
-        items.extend(direct_images)
-    
-    # Find image folders
-    if recursive:
-        import os
-        for root, dirs, files in os.walk(directory):
-            root_path = Path(root)
-            # Skip the input directory itself (we handled direct images above)
-            if root_path == directory:
-                continue
-            
-            # Check if this directory contains images but no archives
-            has_images = any(ImageAnalyzer.is_image_file(Path(root) / f) for f in files)
-            has_archives = any(ArchiveHandler.is_supported_archive(Path(root) / f) for f in files)
-            
-            if has_images and not has_archives:
-                # This is an image-only directory
-                items.append(root_path)
-    else:
-        # For non-recursive, check immediate subdirectories
-        if directory.is_dir():
-            for item in directory.iterdir():
-                if item.is_dir():
-                    try:
-                        # Check if this subdirectory contains images but no archives
-                        has_images = any(ImageAnalyzer.is_image_file(f) for f in item.iterdir() if f.is_file())
-                        has_archives = any(ArchiveHandler.is_supported_archive(f) for f in item.iterdir() if f.is_file())
-                        
-                        if has_images and not has_archives:
-                            items.append(item)
-                    except PermissionError:
-                        continue
-    
-    return sorted(set(items))
+    return find_processable_items(directory, recursive)
 
 
 def cleanup_empty_directories(root_dir, logger):
@@ -111,103 +70,8 @@ def detect_new_image_folders(input_dir, processed_items, recursive=False):
     return current_folders - processed_items
 
 
-def process_single_image_file(image_file, output_dir, args, logger):
-    """Convert an individual image to WebP using convert_single_image."""
-    options = {
-        'quality': args.quality,
-        'max_width': args.max_width,
-        'max_height': args.max_height,
-        'method': args.method,
-        'preprocessing': args.preprocessing,
-        'lossless': args.lossless,
-        'grayscale': args.grayscale,
-        'auto_contrast': args.auto_contrast,
-        'auto_greyscale': getattr(args, 'auto_greyscale', False),
-        'auto_greyscale_pixel_threshold': getattr(args, 'auto_greyscale_pixel_threshold', 16),
-        'auto_greyscale_percent_threshold': getattr(args, 'auto_greyscale_percent_threshold', 0.01),
-        'preserve_auto_greyscale_png': getattr(args, 'preserve_auto_greyscale_png', False),
-        'output_dir': output_dir,
-        'verbose': args.verbose,
-    }
-
-    webp_output = output_dir / f"{image_file.stem}.webp"
-    try:
-        _, _, success, error, _ = convert_single_image((image_file, webp_output, options))
-        if success:
-            orig_size = image_file.stat().st_size
-            new_size = webp_output.stat().st_size
-            logger.info(f"Converted image: {image_file.name}")
-            return True, orig_size, new_size
-        else:
-            logger.error(f"Error converting {image_file}: {error}")
-            return False, 0, 0
-    except (IOError, OSError, ValueError) as e:
-        logger.exception(f"Error processing {image_file}: {e}")
-        return False, 0, 0
-    except Exception as e:
-        logger.exception(f"Unexpected error processing {image_file}: {e}")
-        return False, 0, 0
 
 
-def process_image_directory(image_dir, output_dir, args, logger, packaging_queue=None):
-    """Convert an image directory using convert_to_webp and optionally package."""
-    import shutil
-
-    file_output_dir = output_dir / image_dir.name
-
-    try:
-        convert_to_webp(
-            image_dir,
-            file_output_dir,
-            args.quality,
-            args.max_width,
-            args.max_height,
-            args.threads,
-            args.method,
-            args.preprocessing,
-            args.lossless,
-            logger,
-            args.grayscale,
-            args.auto_contrast,
-            getattr(args, 'auto_greyscale', False),
-            getattr(args, 'auto_greyscale_pixel_threshold', 16),
-            getattr(args, 'auto_greyscale_percent_threshold', 0.01),
-            getattr(args, 'preserve_auto_greyscale_png', False),
-            verbose=args.verbose,
-        )
-
-        orig_size = sum(f.stat().st_size for f in image_dir.rglob('*') if f.is_file())
-
-        if not args.no_cbz:
-            # Get the correct extension for the output format
-            from .core.archive_handler import ArchiveHandler
-            extension = ArchiveHandler.get_extension_for_format(getattr(args, 'output', 'cbz'))
-            archive_output = output_dir / f"{image_dir.name}{extension}"
-            
-            if packaging_queue is not None:
-                result_dict = {"success": False, "new_size": 0}
-                packaging_queue.put((file_output_dir, archive_output, image_dir, result_dict, getattr(args, 'output', 'cbz'), args.zip_compression))
-                logger.info(f"Queued {image_dir.name} for packaging")
-                return True, orig_size, 0
-            else:
-                from .archives import create_archive
-                create_archive(file_output_dir, archive_output, getattr(args, 'output', 'cbz'), logger, args.zip_compression)
-                new_size = archive_output.stat().st_size
-                if not args.keep_originals:
-                    shutil.rmtree(file_output_dir)
-                logger.info(f"Converted folder: {image_dir.name}")
-                return True, orig_size, new_size
-        else:
-            new_size = sum(f.stat().st_size for f in file_output_dir.rglob('*') if f.is_file())
-            logger.info(f"Converted folder: {image_dir.name}")
-            return True, orig_size, new_size
-
-    except (IOError, OSError, ValueError) as e:
-        logger.exception(f"Error processing folder {image_dir}: {e}")
-        return False, 0, 0
-    except Exception as e:
-        logger.exception(f"Unexpected error processing folder {image_dir}: {e}")
-        return False, 0, 0
 
 
 def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
@@ -420,72 +284,20 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
             if unprocessed_items:
                 logger.info(f"Found {len(unprocessed_items)} new item(s) to process")
 
+                # Create unified processor
+                processor = FileProcessor(logger, packaging_queue)
+                
                 for item in unprocessed_items:
-                    # Determine the relative path structure to preserve
-                    if item.is_dir():
-                        rel_path = item.parent.relative_to(input_dir)
-                        logger.info(f"Processing image folder: {item}")
-                    else:
-                        rel_path = item.parent.relative_to(input_dir)
-                        logger.info(f"Processing: {item}")
-
-                    target_output_dir = output_dir / rel_path
-                    target_output_dir.mkdir(parents=True, exist_ok=True)
-
-                    logger.debug(f"Output directory: {target_output_dir}")
-
-                    if item.is_file() and ArchiveHandler.is_supported_archive(item):
-                        success, original_size, result = process_single_file(
-                            input_file=item,
-                            output_dir=target_output_dir,
-                            quality=args.quality,
-                            max_width=args.max_width,
-                            max_height=args.max_height,
-                            no_cbz=args.no_cbz,
-                            keep_originals=args.keep_originals,
-                            num_threads=conversion_threads,
-                            logger=logger,
-                            packaging_queue=packaging_queue,
-                            method=args.method,
-                            preprocessing=args.preprocessing,
-                            zip_compresslevel=args.zip_compression,
-                            lossless=args.lossless,
-                            grayscale=args.grayscale,
-                            auto_contrast=args.auto_contrast,
-                            auto_greyscale=getattr(args, 'auto_greyscale', False),
-                            auto_greyscale_pixel_threshold=getattr(
-                                args,
-                                'auto_greyscale_pixel_threshold',
-                                16,
-                            ),
-                            auto_greyscale_percent_threshold=getattr(
-                                args,
-                                'auto_greyscale_percent_threshold',
-                                0.01,
-                            ),
-                            output_format=getattr(args, 'output', 'cbz'),
-                            verbose=args.verbose,
-                        )
-                    elif item.is_file() and ImageAnalyzer.is_image_file(item):
-                        success, original_size, result = process_single_image_file(
-                            item,
-                            target_output_dir,
-                            args,
-                            logger,
-                        )
-                    elif item.is_dir():
-                        success, original_size, result = process_image_directory(
-                            item,
-                            target_output_dir,
-                            args,
-                            logger,
-                            packaging_queue=packaging_queue,
-                        )
-                    else:
-                        logger.warning(f"Unsupported item: {item}")
-                        processed_files.add(item)
-                        save_history()
-                        continue
+                    logger.info(f"Processing: {item}")
+                    
+                    # Process the item using the unified processor
+                    success, original_size, result = processor.process_item(
+                        item=item,
+                        output_dir=output_dir,
+                        args=args,
+                        preserve_directory_structure=True,
+                        input_base_dir=input_dir
+                    )
 
                     if success:
                         # Handle direct result vs async result
@@ -511,25 +323,8 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                         processed_files.add(item)
                         save_history()
 
-                        if args.delete_originals:
-                            try:
-                                if item.is_file():
-                                    # Delete the original file
-                                    item.unlink()
-                                    logger.info(f"Deleted original file: {item}")
-                                    
-                                    # Check if parent directory is now empty and remove if it is
-                                    FileSystemUtils.remove_empty_dirs(item.parent, input_dir, logger)
-                                elif item.is_dir():
-                                    # Delete the original image folder
-                                    import shutil
-                                    shutil.rmtree(item)
-                                    logger.info(f"Deleted original folder: {item}")
-                                    
-                                    # Check if parent directory is now empty and remove if it is
-                                    FileSystemUtils.remove_empty_dirs(item.parent, input_dir, logger)
-                            except Exception as e:
-                                logger.error(f"Error deleting {item}: {e}")
+                        # Clean up after processing (delete originals if requested)
+                        processor.cleanup_after_processing(item, success, args, input_dir)
                     else:
                         logger.error(f"Failed to process {item}")
 
