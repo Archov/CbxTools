@@ -1,6 +1,15 @@
 # CBXTools Dependency Management
 
-CBXTools now includes built-in dependency checking and installation to ensure all required packages are available before processing comic archives.
+CBXTools includes built-in dependency checking and installation with a modular architecture that ensures consistent behavior across all components.
+
+## Architecture
+
+The dependency management system is integrated into the consolidated architecture:
+
+- **Centralized Checking**: Single implementation in `cli.py` eliminates duplicate dependency logic
+- **Consistent Error Handling**: Unified error messages and validation across all modules
+- **Modular Design**: Core utilities handle their own import dependencies gracefully
+- **Graceful Degradation**: Optional dependencies are handled consistently throughout the codebase
 
 ## Quick Start
 
@@ -28,37 +37,59 @@ cbxtools --skip-dependency-check input.cbz output/
 ## Dependencies
 
 ### Required Dependencies
-These packages are essential for CBXTools to function:
+These packages are essential for CBXTools core functionality:
 
-- **pillow** - Required for image processing and WebP conversion
-- **rarfile** - Required for extracting CBR (RAR) archive files  
-- **patool** - Required for general archive extraction support
+- **pillow** - Required for image processing and WebP conversion (used by `ImageAnalyzer`)
+- **rarfile** - Required for extracting CBR (RAR) archive files (used by `ArchiveHandler`)
+- **py7zr** - Required for CB7 (7Z) archive extraction (used by `ArchiveHandler`)
 
 ### Optional Dependencies
 These packages enable additional features:
 
-- **numpy** - Enhances performance for auto-greyscale image analysis
-- **matplotlib** - Enables debug histogram visualizations
+- **numpy** - Enhances performance for auto-greyscale image analysis in `ImageAnalyzer`
+- **matplotlib** - Enables debug histogram visualizations in debug utilities
+
+## Consolidated Benefits
+
+The refactored dependency management provides:
+
+### Unified Import Handling
+- **Core utilities** handle missing dependencies gracefully
+- **Consistent error messages** across all modules
+- **Single point of truth** for dependency requirements
+- **Modular degradation** - missing optional dependencies don't break core functionality
+
+### Enhanced Error Reporting
+- **Detailed dependency status** with descriptions of what each package enables
+- **Installation guidance** with specific commands for different scenarios
+- **Platform-specific instructions** for common installation issues
+
+### Better Integration
+- **Watch mode support** - dependency checks work seamlessly with long-running processes
+- **Debug tool compatibility** - debug utilities handle missing optional dependencies gracefully
+- **Preset integration** - dependency warnings appear when using features requiring missing packages
 
 ## Automatic Dependency Checking
 
-By default, CBXTools will check for required dependencies on startup. If any are missing, you'll be prompted with options to:
+By default, CBXTools will check for required dependencies on startup using the consolidated checking system. If any are missing, you'll be prompted with options to:
 
 1. Install all missing dependencies automatically
 2. Install only required dependencies
 3. Get manual installation instructions
 4. Continue without installing (some features may not work)
 
+The consolidated architecture ensures this check is fast and doesn't duplicate work across modules.
+
 ## Manual Installation
 
 If automatic installation doesn't work or you prefer to install manually:
 
 ```bash
-# Install all dependencies
-pip install pillow rarfile patool numpy matplotlib
+# Install all dependencies (recommended)
+pip install pillow rarfile py7zr numpy matplotlib
 
 # Install only required dependencies
-pip install pillow rarfile patool
+pip install pillow rarfile py7zr
 
 # Install from setup.py
 pip install -e .
@@ -71,11 +102,11 @@ If you get permission errors during installation, try:
 
 ```bash
 # Install for current user only
-pip install --user pillow rarfile patool
+pip install --user pillow rarfile py7zr
 
 # Or run with elevated privileges (Windows)
 # Run command prompt as Administrator, then:
-pip install pillow rarfile patool
+pip install pillow rarfile py7zr
 ```
 
 ### Pip Not Available
@@ -93,12 +124,10 @@ The `rarfile` package requires the `unrar` utility for extracting RAR files:
 - **Linux**: `sudo apt install unrar` or `sudo yum install unrar`
 - **macOS**: `brew install unrar`
 
-#### patool
-The `patool` package works with various archive formats and may require additional utilities:
-- For best compatibility, install 7-zip or p7zip
-- **Windows**: Install 7-Zip from 7-zip.org
-- **Linux**: `sudo apt install p7zip-full`
-- **macOS**: `brew install p7zip`
+#### py7zr
+For CB7 (7Z) archive support:
+- Usually installs cleanly with pip
+- If issues occur, try updating pip first: `pip install --upgrade pip`
 
 ## Examples
 
@@ -127,6 +156,15 @@ cbxtools --skip-dependency-check --preset high-quality comics/ output/
 cbxtools --check-dependencies --verbose
 ```
 
+### Watch Mode with Dependencies
+```bash
+# Dependency check works seamlessly with watch mode
+cbxtools input_dir/ output_dir/ --watch --preset manga
+
+# Skip check for long-running watch processes
+cbxtools input_dir/ output_dir/ --watch --skip-dependency-check
+```
+
 ## Integration with CI/CD
 
 For automated environments, you can check and install dependencies programmatically:
@@ -144,6 +182,41 @@ fi
 cbxtools --skip-dependency-check input/ output/
 ```
 
+## Core Module Handling
+
+The consolidated architecture handles dependencies at the module level:
+
+### ArchiveHandler
+```python
+# Gracefully handles missing archive utilities
+try:
+    import py7zr
+except ImportError:
+    # CB7 support disabled, clear error message provided
+    pass
+```
+
+### ImageAnalyzer
+```python
+# Requires numpy for analysis; raises a clear error if missing
+try:
+    import numpy as np
+    _HAS_NUMPY = True
+except ImportError:
+    np = None
+    _HAS_NUMPY = False
+```
+
+### Debug Utilities
+```python
+# Optional visualization support
+try:
+    import matplotlib
+except ImportError:
+    # Debug analysis works without visualizations
+    matplotlib = None
+```
+
 ## Exit Codes
 
 The dependency management commands return specific exit codes:
@@ -151,4 +224,4 @@ The dependency management commands return specific exit codes:
 - **0**: Success (all required dependencies available)
 - **1**: Failure (missing required dependencies or installation failed)
 
-This makes it easy to integrate with scripts and automation tools.
+This makes it easy to integrate with scripts and automation tools while providing consistent behavior across the entire application.
