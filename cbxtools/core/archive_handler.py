@@ -33,7 +33,11 @@ class ArchiveHandler:
     @classmethod
     def get_extension_for_format(cls, format_type):
         """Get the file extension for a given format type."""
-        return cls.FORMAT_EXTENSIONS.get(format_type.lower(), '.cbz')
+        ext = cls.FORMAT_EXTENSIONS.get(str(format_type).lower())
+        if ext is None:
+            supported = ', '.join(cls.get_supported_formats())
+            raise ValueError(f"Unsupported output format: {format_type}. Supported formats: {supported}")
+        return ext
     
     @classmethod
     def get_supported_formats(cls) -> tuple[str, ...]:
@@ -83,7 +87,10 @@ class ArchiveHandler:
     @staticmethod
     def _extract_rar(archive_path, extract_dir):
         """Extract RAR/CBR archive with path validation."""
-        import rarfile
+        try:
+            import rarfile
+        except ImportError as e:
+            raise ImportError("rarfile is required to extract RAR/CBR archives") from e
         import shutil
 
         dest = Path(extract_dir).resolve()
@@ -105,7 +112,10 @@ class ArchiveHandler:
     @staticmethod
     def _extract_7z(archive_path, extract_dir):
         """Extract 7Z/CB7 archive with path validation."""
-        import py7zr
+        try:
+            import py7zr
+        except ImportError as e:
+            raise ImportError("py7zr is required to extract 7Z/CB7 archives") from e
 
         dest = Path(extract_dir).resolve()
         with py7zr.SevenZipFile(archive_path, mode='r') as z:
@@ -130,8 +140,9 @@ class ArchiveHandler:
     @classmethod
     def create_archive(cls, source_dir, output_file, format_type, logger=None, compresslevel=9):
         """Create archive from directory in specified format."""
+        fmt = str(format_type).lower()
         if logger:
-            logger.info(f"Creating {format_type.upper()} file: {output_file} (compression level: {compresslevel})")
+            logger.info(f"Creating {fmt.upper()} file: {output_file} (compression level: {compresslevel})")
 
         # Count file types for reporting
         image_count = 0
@@ -153,16 +164,22 @@ class ArchiveHandler:
         # Sort files - typically comic pages are numbered sequentially
         all_files.sort(key=lambda x: str(x[1]))
 
+        # Nothing to do if no files
+        if not all_files:
+            if logger:
+                logger.warning(f"No files to archive for {output_file}. Skipping creation.")
+            return
+
         # Create archive based on format using dispatch dict
         creators = {
             'zip': cls._create_zip_archive, 'cbz': cls._create_zip_archive,
             'rar': cls._create_rar_archive, 'cbr': cls._create_rar_archive,
             '7z': cls._create_7z_archive,  'cb7': cls._create_7z_archive,
         }
-        creator = creators.get(format_type)
+        creator = creators.get(fmt)
         if not creator:
-            supported_formats = tuple(creators.keys())
-            raise ValueError(f"Unsupported output format: {format_type}. Supported formats are: {', '.join(supported_formats)}")
+            supported = ', '.join(cls.get_supported_formats())
+            raise ValueError(f"Unsupported output format: {format_type}. Supported formats are: {supported}")
         creator(output_file, all_files, compresslevel, logger, image_count, other_count)
     
     @staticmethod

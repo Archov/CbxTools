@@ -68,13 +68,18 @@ class FileProcessor:
                 self.logger.warning(f"Skipping unsupported item: {item}")
                 return False, 0, 0
                 
-        except Exception as e:
-            self.logger.exception(f"Error processing {item}: {e}")
+        except Exception:
+            self.logger.exception(f"Error processing {item}")
             return False, 0, 0
     
     def _process_archive_file(self, archive_file: Path, output_dir: Path, args: Any) -> Tuple[bool, int, int]:
         """Process a single archive file."""
         from ..conversion import process_single_file
+        # Validate and normalize output format
+        output_format = getattr(args, 'output', 'cbz')
+        supported = ArchiveHandler.get_supported_formats()
+        if str(output_format).lower() not in supported:
+            raise ValueError(f"Unsupported output format: {output_format}. Supported: {', '.join(supported)}")
         return process_single_file(
             input_file=archive_file,
             output_dir=output_dir,
@@ -96,7 +101,7 @@ class FileProcessor:
             auto_greyscale_pixel_threshold=args.auto_greyscale_pixel_threshold,
             auto_greyscale_percent_threshold=args.auto_greyscale_percent_threshold,
             preserve_auto_greyscale_png=args.preserve_auto_greyscale_png,
-            output_format=getattr(args, 'output', 'cbz'),
+            output_format=str(output_format).lower(),
             verbose=args.verbose
         )
     
@@ -133,8 +138,8 @@ class FileProcessor:
                 self.logger.error(f"Output file not created: {output_file}")
                 return False, orig_size_bytes, 0
                 
-        except Exception as e:
-            self.logger.exception(f"Error processing single image {image_file}: {e}")
+        except Exception:
+            self.logger.exception(f"Error processing single image {image_file}")
             return False, 0, 0
     
     def _process_image_folder(self, image_dir: Path, output_dir: Path, args: Any) -> Tuple[bool, int, int]:
@@ -170,25 +175,24 @@ class FileProcessor:
             
             # Create archive if requested
             if not args.no_cbz:
-                # Validate output format
-                output_format = getattr(args, 'output', 'cbz')
-                if output_format.lower() not in ArchiveHandler.FORMAT_EXTENSIONS:
-                    raise ValueError(f"Unsupported output format: {output_format}. Supported: {', '.join(ArchiveHandler.FORMAT_EXTENSIONS)}")
-                
+                # Validate and normalize output format
+                output_format = str(getattr(args, 'output', 'cbz')).lower()
+                supported = ArchiveHandler.get_supported_formats()
+                if output_format not in supported:
+                    raise ValueError(f"Unsupported output format: {output_format}. Supported: {', '.join(supported)}")
                 # Get the correct extension for the output format
                 extension = ArchiveHandler.get_extension_for_format(output_format)
                 archive_output = output_dir / f"{image_dir.name}{extension}"
                 
                 if self.packaging_queue is not None:
                     result_dict = {"success": False, "new_size": 0}
-                    self.packaging_queue.put((file_output_dir, archive_output, image_dir, result_dict, 
-                                            getattr(args, 'output', 'cbz'), args.zip_compression))
+                    self.packaging_queue.put((file_output_dir, archive_output, image_dir, result_dict,
+                                              output_format, args.zip_compression))
                     self.logger.info(f"Queued {image_dir.name} for packaging")
                     return True, orig_size, 0
                 else:
                     from ..archives import create_archive
-                    create_archive(file_output_dir, archive_output, getattr(args, 'output', 'cbz'), 
-                                 self.logger, args.zip_compression)
+                    create_archive(file_output_dir, archive_output, output_format, self.logger, args.zip_compression)
                     new_size = archive_output.stat().st_size
                     if not args.keep_originals:
                         shutil.rmtree(file_output_dir)
@@ -199,8 +203,8 @@ class FileProcessor:
                 self.logger.info(f"Converted folder: {image_dir.name}")
                 return True, orig_size, new_size
                 
-        except Exception as e:
-            self.logger.exception(f"Error processing image folder {image_dir}: {e}")
+        except Exception:
+            self.logger.exception(f"Error processing image folder {image_dir}")
             return False, 0, 0
     
     def _is_image_folder(self, directory: Path) -> bool:
@@ -209,9 +213,8 @@ class FileProcessor:
             return False
         
         # Check if directory contains image files
-        image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.tif', '.webp'}
         for file_path in directory.iterdir():
-            if file_path.is_file() and file_path.suffix.lower() in image_extensions:
+            if file_path.is_file() and ImageAnalyzer.is_image_file(file_path):
                 return True
         
         return False
@@ -247,8 +250,8 @@ class FileProcessor:
                 # Check if parent directory is now empty and remove if it is
                 if input_base_dir:
                     FileSystemUtils.remove_empty_dirs(item.parent, input_base_dir, self.logger)
-        except Exception as e:
-            self.logger.exception(f"Error deleting {item}: {e}")
+        except Exception:
+            self.logger.exception(f"Error deleting {item}")
 
 
 def find_processable_items(directory: Path, recursive: bool = False) -> list[Path]:
@@ -279,8 +282,10 @@ def find_processable_items(directory: Path, recursive: bool = False) -> list[Pat
         for subdir in directory.rglob('*'):
             if subdir.is_dir() and subdir != directory:
                 # Check if this directory contains images
-                has_images = any(ImageAnalyzer.is_image_file(f) for f in subdir.iterdir() if f.is_file())
-                if has_images:
+                files = [f for f in subdir.iterdir() if f.is_file()]
+                has_images = any(ImageAnalyzer.is_image_file(f) for f in files)
+                has_archives = any(ArchiveHandler.is_supported_archive(f) for f in files)
+                if has_images and not has_archives:
                     items.append(subdir)
     
     return sorted(items)

@@ -242,6 +242,9 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                     result = result_queue.get_nowait()
                     input_file = result["file"]
                     
+                    # Always call task_done for every result
+                    result_queue.task_done()
+                    
                     if result["success"] and input_file in pending_results:
                         original_size = pending_results[input_file]
                         new_size = result["new_size"]
@@ -259,8 +262,16 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                         # Remove from pending
                         del pending_results[input_file]
                         
-                        # Mark task as done
-                        result_queue.task_done()
+                        # Mark as processed now that packaging succeeded
+                        processed_files.add(input_file)
+                        save_history()
+                        
+                    elif not result["success"] and input_file in pending_results:
+                        # Packaging failed - log error and remove from pending
+                        # Do NOT add to processed_files so it can be retried
+                        logger.error(f"Packaging failed for {input_file}")
+                        del pending_results[input_file]
+                        
                 except queue.Empty:
                     break
             
@@ -302,6 +313,7 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                         # Handle direct result vs async result
                         if not args.no_cbz and not ImageAnalyzer.is_image_file(item):
                             # Track the pending result for later statistics update (archives and folders)
+                            # Do NOT add to processed_files yet - wait for packaging success
                             pending_results[item] = original_size
                         else:
                             # Direct result for no_cbz or individual images - update stats immediately
@@ -318,14 +330,16 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                                     0  # Execution time not relevant for stats tracking in watch mode
                                 )
                                 print_lifetime_stats(stats_tracker, logger)
-                        
-                        processed_files.add(item)
-                        save_history()
+                            
+                            # Mark as processed immediately for direct results
+                            processed_files.add(item)
+                            save_history()
 
                         # Clean up after processing (delete originals if requested)
                         processor.cleanup_after_processing(item, success, args, input_dir)
                     else:
                         logger.error(f"Failed to process {item}")
+                        # Do NOT add to processed_files on failure - allow retry on next scan
 
             # Sleep before next check
             time.sleep(args.watch_interval)
@@ -354,6 +368,9 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                     result = result_queue.get_nowait()
                     input_file = result["file"]
                     
+                    # Always call task_done for every result
+                    result_queue.task_done()
+                    
                     if result["success"] and input_file in pending_results:
                         original_size = pending_results[input_file]
                         new_size = result["new_size"]
@@ -366,6 +383,10 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                         # Remove from pending
                         del pending_results[input_file]
                         
+                        # Mark as processed now that packaging succeeded
+                        processed_files.add(input_file)
+                        save_history()
+                        
                         # Update lifetime stats for the final batch
                         if stats_enabled:
                             stats_tracker.add_run(
@@ -375,7 +396,12 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
                                 0  # Execution time not relevant for stats tracking in watch mode
                             )
                     
-                    result_queue.task_done()
+                    elif not result["success"] and input_file in pending_results:
+                        # Packaging failed - log error and remove from pending
+                        # Do NOT add to processed_files so it can be retried
+                        logger.error(f"Packaging failed for {input_file}")
+                        del pending_results[input_file]
+                        
             except queue.Empty:
                 pass
         
