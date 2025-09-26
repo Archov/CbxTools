@@ -15,6 +15,7 @@ from pathlib import Path
 from .utils import setup_logging, log_effective_parameters
 from .core.path_validator import PathValidator
 from .core.filesystem_utils import FileSystemUtils
+from .core.file_processor import FileProcessor, find_processable_items
 from .archives import find_comic_archives
 from .conversion import process_single_file, process_archive_files
 from .stats_tracker import StatsTracker, print_summary_report, print_lifetime_stats
@@ -50,10 +51,10 @@ def check_and_install_dependencies(logger, auto_install=False):
                 'description': 'Required for CBR archive extraction',
                 'available': False
             },
-            'patoolib': {
-                'import_name': 'patoolib',
-                'package_name': 'patool',
-                'description': 'Required for general archive extraction',
+            'py7zr': {
+                'import_name': 'py7zr',
+                'package_name': 'py7zr',
+                'description': 'Required for 7Z/CB7 archive extraction and creation',
                 'available': False
             }
         },
@@ -68,6 +69,12 @@ def check_and_install_dependencies(logger, auto_install=False):
                 'import_name': 'matplotlib',
                 'package_name': 'matplotlib',
                 'description': 'Optional for debug histogram visualizations',
+                'available': False
+            },
+            'patoolib': {
+                'import_name': 'patoolib',
+                'package_name': 'patool',
+                'description': 'Optional for general archive extraction (legacy support)',
                 'available': False
             }
         }
@@ -152,7 +159,7 @@ def offer_to_install_dependencies(missing_deps, logger):
             return install_dependencies(missing_deps, logger)
         elif choice == '2':
             # Filter for required dependencies only
-            required_packages = ['pillow', 'rarfile', 'patool']
+            required_packages = ['pillow', 'rarfile', 'py7zr']
             required_deps = [dep for dep in missing_deps if dep['package_name'] in required_packages]
             return install_dependencies(required_deps, logger)
         elif choice == '3':
@@ -326,10 +333,12 @@ def parse_arguments():
     
     # Output options
     output_group = parser.add_argument_group('Output Options')
+    output_group.add_argument('--output', choices=['zip', 'cbz', '7z', 'cb7'], 
+                            default='cbz', help='Output archive format (default: cbz)')
     output_group.add_argument('--no-cbz', action='store_true',
-                            help='Do not create a CBZ file with the WebP images')
+                            help='Do not create an archive file with the WebP images')
     output_group.add_argument('--keep-originals', action='store_true',
-                            help='Keep the extracted WebP files after creating the CBZ')
+                            help='Keep the extracted WebP files after creating the archive')
     output_group.add_argument('--recursive', action='store_true',
                             help='Recursively search for CBZ/CBR files in subdirectories')
     output_group.add_argument('--threads', type=int, default=0,
@@ -723,6 +732,7 @@ def process_single_archive_file(input_path, output_dir, args, logger):
         auto_greyscale_pixel_threshold=args.auto_greyscale_pixel_threshold,
         auto_greyscale_percent_threshold=args.auto_greyscale_percent_threshold,
         preserve_auto_greyscale_png=args.preserve_auto_greyscale_png,
+        output_format=args.output,
         verbose=args.verbose
     )
 
@@ -802,6 +812,7 @@ def process_directory_recursive(input_path, output_dir, args, logger):
             auto_greyscale_pixel_threshold=args.auto_greyscale_pixel_threshold,
         auto_greyscale_percent_threshold=args.auto_greyscale_percent_threshold,
         preserve_auto_greyscale_png=args.preserve_auto_greyscale_png,
+        output_format=args.output,
         verbose=args.verbose
     )
         

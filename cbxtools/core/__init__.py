@@ -8,6 +8,7 @@ from .packaging_worker import (
     AsynchronousPackagingWorker,
     WatchModePackagingWorker,
 )
+from .file_processor import FileProcessor, find_processable_items
 
 __all__ = [
     "ArchiveHandler",
@@ -17,4 +18,6 @@ __all__ = [
     "SynchronousPackagingWorker",
     "AsynchronousPackagingWorker",
     "WatchModePackagingWorker",
+    "FileProcessor",
+    "find_processable_items",
 ]

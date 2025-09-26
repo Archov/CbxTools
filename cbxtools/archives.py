@@ -19,6 +19,11 @@ def create_cbz(source_dir, output_file, logger, compresslevel=9):
     return ArchiveHandler.create_cbz(source_dir, output_file, logger, compresslevel)
 
 
+def create_archive(source_dir, output_file, format_type, logger, compresslevel=9):
+    """Create a new archive file from the contents of source_dir in specified format."""
+    return ArchiveHandler.create_archive(source_dir, output_file, format_type, logger, compresslevel)
+
+
 def find_comic_archives(directory, recursive=False):
     """Find all CBZ/CBR/CB7 files in the given directory."""
     return ArchiveHandler.find_archives(directory, recursive)

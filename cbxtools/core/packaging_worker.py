@@ -21,11 +21,11 @@ class PackagingWorkerBase:
         self.keep_originals = keep_originals
         self.running = False
     
-    def package_single(self, file_output_dir, cbz_output, input_file, zip_compresslevel=9):
-        """Package a single directory into CBZ format."""
+    def package_single(self, file_output_dir, archive_output, input_file, format_type='cbz', zip_compresslevel=9):
+        """Package a single directory into specified archive format."""
         try:
-            ArchiveHandler.create_cbz(file_output_dir, cbz_output, self.logger, zip_compresslevel)
-            _, new_size_bytes = FileSystemUtils.get_file_size_formatted(cbz_output)
+            ArchiveHandler.create_archive(file_output_dir, archive_output, format_type, self.logger, zip_compresslevel)
+            _, new_size_bytes = FileSystemUtils.get_file_size_formatted(archive_output)
             
             if not self.keep_originals:
                 shutil.rmtree(file_output_dir)
@@ -42,9 +42,9 @@ class PackagingWorkerBase:
 class SynchronousPackagingWorker(PackagingWorkerBase):
     """Synchronous packaging worker for single-threaded operations."""
     
-    def process(self, file_output_dir, cbz_output, input_file, zip_compresslevel=9):
+    def process(self, file_output_dir, archive_output, input_file, format_type='cbz', zip_compresslevel=9):
         """Process packaging synchronously."""
-        return self.package_single(file_output_dir, cbz_output, input_file, zip_compresslevel)
+        return self.package_single(file_output_dir, archive_output, input_file, format_type, zip_compresslevel)
 
 
 class AsynchronousPackagingWorker(PackagingWorkerBase):
@@ -77,12 +77,12 @@ class AsynchronousPackagingWorker(PackagingWorkerBase):
         if self.worker_thread:
             self.worker_thread.join(timeout=10)
     
-    def queue_package(self, file_output_dir, cbz_output, input_file, result_dict, zip_compresslevel=9):
+    def queue_package(self, file_output_dir, archive_output, input_file, result_dict, format_type='cbz', zip_compresslevel=9):
         """Queue a packaging operation."""
         if not self.running:
             self.start()
         
-        self.packaging_queue.put((file_output_dir, cbz_output, input_file, result_dict, zip_compresslevel))
+        self.packaging_queue.put((file_output_dir, archive_output, input_file, result_dict, format_type, zip_compresslevel))
     
     def _worker_loop(self):
         """Main worker loop for processing packaging queue."""
@@ -93,14 +93,18 @@ class AsynchronousPackagingWorker(PackagingWorkerBase):
                 break
             
             # Handle both old and new queue item formats
-            if len(item) >= 5:
-                file_output_dir, cbz_output, input_file, result_dict, zip_compresslevel = item
+            if len(item) >= 6:
+                file_output_dir, archive_output, input_file, result_dict, format_type, zip_compresslevel = item
+            elif len(item) >= 5:
+                file_output_dir, archive_output, input_file, result_dict, zip_compresslevel = item
+                format_type = 'cbz'  # Default
             else:
-                file_output_dir, cbz_output, input_file, result_dict = item
+                file_output_dir, archive_output, input_file, result_dict = item
+                format_type = 'cbz'  # Default
                 zip_compresslevel = 9  # Default
             
             success, new_size = self.package_single(
-                file_output_dir, cbz_output, input_file, zip_compresslevel
+                file_output_dir, archive_output, input_file, format_type, zip_compresslevel
             )
             
             result_dict["success"] = success
