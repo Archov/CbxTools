@@ -539,11 +539,10 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
             packaging_queue.put(None)
             
             # Wait for packaging to complete
-            try:
-                logger.info("Waiting for packaging to complete...")
-                packaging_queue.join(timeout=10)
-            except:
-                pass  # Timeout is fine
+            logger.info("Waiting for packaging to complete...")
+            packaging_queue.join()
+            if packaging_thread is not None:
+                packaging_thread.join(timeout=10)
             
             # Process any remaining results
             try:
