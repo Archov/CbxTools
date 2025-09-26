@@ -1,9 +1,5 @@
-/cbxtools/__pycache__
-cbxtools/core/__pycache__/*
+**/__pycache__/
+*.py[cod]
 desktop.ini
-cbxtools/core/__pycache__/__init__.cpython-312.pyc
-cbxtools/core/__pycache__/archive_handler.cpython-312.pyc
-cbxtools/core/__pycache__/filesystem_utils.cpython-312.pyc
-cbxtools/core/__pycache__/image_analyzer.cpython-312.pyc
-cbxtools/core/__pycache__/packaging_worker.cpython-312.pyc
-cbxtools/core/__pycache__/path_validator.cpython-312.pyc
+GitHubPRComments.config.json
+CbxTools.PR*.json
