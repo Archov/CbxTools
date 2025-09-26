@@ -221,25 +221,58 @@ def install_dependencies(deps_to_install, logger):
         return {'all_required_available': False, 'installation_error': str(e)}
 
 
+class CustomHelpFormatter(argparse.RawDescriptionHelpFormatter):
+    """Custom formatter that provides better line wrapping for the usage line."""
+    
+    def _format_usage(self, usage, actions, groups, prefix):
+        """Override to provide better usage line formatting."""
+        if prefix is None:
+            prefix = 'usage: '
+        
+        # Get the program name
+        if self._prog:
+            prog = self._prog
+        else:
+            prog = '%(prog)s'
+        
+        # Create a more readable usage line
+        usage_text = f"{prefix}{prog} [options] [input_path] [output_dir]\n\n"
+        usage_text += "Convert CBZ/CBR images to WebP format with automatic greyscale detection.\n\n"
+        usage_text += "Examples:\n"
+        usage_text += "  %(prog)s input.cbz output/\n"
+        usage_text += "  %(prog)s comics/ output/ --preset manga --recursive\n"
+        usage_text += "  %(prog)s --watch input/ output/ --delete-originals\n"
+        usage_text += "  %(prog)s --debug-auto-greyscale-single image.jpg\n\n"
+        
+        return usage_text
+
+
 def parse_arguments():
     """Parse command line arguments with support for presets and auto-greyscale."""
     parser = argparse.ArgumentParser(
         description='Convert CBZ/CBR images to WebP format',
         epilog='Use --check-dependencies to verify all required packages are installed, '
-               'or --install-dependencies to automatically install missing packages.'
+               'or --install-dependencies to automatically install missing packages.',
+        formatter_class=CustomHelpFormatter,
+        add_help=False  # We'll add custom help handling
     )
+    # Add help argument
+    parser.add_argument('-h', '--help', action='help', 
+                        help='Show this help message and exit')
+    
     parser.add_argument('input_path', nargs='?', default=None,
                         help='Path to CBZ/CBR file or directory containing multiple archives')
     parser.add_argument('output_dir', nargs='?', default=None,
                         help='Output directory for WebP images')
     
     # Basic options - with None as default to detect if explicitly set
-    parser.add_argument('--quality', type=int, default=None, 
-                        help='WebP compression quality (0-100, default: 80 or from preset)')
-    parser.add_argument('--max-width', type=int, default=None,
-                        help='Max width in pixels (0 = no restriction)')
-    parser.add_argument('--max-height', type=int, default=None,
-                        help='Max height in pixels (0 = no restriction)')
+    basic_group = parser.add_argument_group('Basic Options')
+    basic_group.add_argument('--quality', type=int, default=None, 
+                            help='WebP compression quality (0-100, default: 80 or from preset)')
+    basic_group.add_argument('--max-width', type=int, default=None,
+                            help='Max width in pixels (0 = no restriction)')
+    basic_group.add_argument('--max-height', type=int, default=None,
+                            help='Max height in pixels (0 = no restriction)')
     
     # Advanced compression options
     compression_group = parser.add_argument_group('Advanced Compression Options')
@@ -290,36 +323,39 @@ def parse_arguments():
                         help='Overwrite existing presets when saving or importing')
     
     # Output options
-    parser.add_argument('--no-cbz', action='store_true',
-                        help='Do not create a CBZ file with the WebP images')
-    parser.add_argument('--keep-originals', action='store_true',
-                        help='Keep the extracted WebP files after creating the CBZ')
-    parser.add_argument('--recursive', action='store_true',
-                        help='Recursively search for CBZ/CBR files in subdirectories')
-    parser.add_argument('--threads', type=int, default=0,
-                        help='Number of parallel threads to use (0 = auto-detect)')
+    output_group = parser.add_argument_group('Output Options')
+    output_group.add_argument('--no-cbz', action='store_true',
+                            help='Do not create a CBZ file with the WebP images')
+    output_group.add_argument('--keep-originals', action='store_true',
+                            help='Keep the extracted WebP files after creating the CBZ')
+    output_group.add_argument('--recursive', action='store_true',
+                            help='Recursively search for CBZ/CBR files in subdirectories')
+    output_group.add_argument('--threads', type=int, default=0,
+                            help='Number of parallel threads to use (0 = auto-detect)')
     
     # Logging/stats options
-    parser.add_argument('--verbose', '-v', action='store_true',
-                        help='Enable verbose output')
-    parser.add_argument('--silent', '-s', action='store_true',
-                        help='Suppress all output except errors')
-    parser.add_argument('--stats-file', type=str, default=None,
-                        help='Path to stats file (default: ~/.cbx-tools-stats.json)')
-    parser.add_argument('--no-stats', action='store_true',
-                        help='Do not update or display lifetime statistics')
-    parser.add_argument('--stats-only', action='store_true',
-                        help='Display lifetime statistics and exit')
+    logging_group = parser.add_argument_group('Logging and Statistics')
+    logging_group.add_argument('--verbose', '-v', action='store_true',
+                              help='Enable verbose output')
+    logging_group.add_argument('--silent', '-s', action='store_true',
+                              help='Suppress all output except errors')
+    logging_group.add_argument('--stats-file', type=str, default=None,
+                              help='Path to stats file (default: ~/.cbxtools/.cbx-tools-stats.json)')
+    logging_group.add_argument('--no-stats', action='store_true',
+                              help='Do not update or display lifetime statistics')
+    logging_group.add_argument('--stats-only', action='store_true',
+                              help='Display lifetime statistics and exit')
     
     # Watch mode options
-    parser.add_argument('--watch', action='store_true',
-                        help='Watch input directory for new files and process automatically')
-    parser.add_argument('--watch-interval', type=int, default=5,
-                        help='Interval (seconds) to check for new files in watch mode')
-    parser.add_argument('--delete-originals', action='store_true',
-                        help='Delete original files after successful conversion in watch mode')
-    parser.add_argument('--clear-history', action='store_true',
-                        help='Clear watch history file before starting watch mode')
+    watch_group = parser.add_argument_group('Watch Mode Options')
+    watch_group.add_argument('--watch', action='store_true',
+                            help='Watch input directory for new files and process automatically')
+    watch_group.add_argument('--watch-interval', type=int, default=5,
+                            help='Interval (seconds) to check for new files in watch mode')
+    watch_group.add_argument('--delete-originals', action='store_true',
+                            help='Delete original files after successful conversion in watch mode')
+    watch_group.add_argument('--clear-history', action='store_true',
+                            help='Clear watch history file before starting watch mode')
     
     # Debug options
     debug_group = parser.add_argument_group('Debug Options')
@@ -336,18 +372,18 @@ def parse_arguments():
 
     scan_group = parser.add_argument_group('Near Greyscale Scan')
     scan_group.add_argument('--scan-near-greyscale', choices=['dryrun','move','process'],
-                        help='Scan archives for near-greyscale images and take action')
+                            help='Scan archives for near-greyscale images and take action')
     scan_group.add_argument('--scan-output', type=str, default=None,
-                        help='Output file for dryrun or destination directory for move mode')
+                            help='Output file for dryrun or destination directory for move mode')
     
     # Dependency management options
-    dep_group = parser.add_argument_group('Dependency Management Options')
+    dep_group = parser.add_argument_group('Dependency Management')
     dep_group.add_argument('--check-dependencies', action='store_true',
-                        help='Check for dependencies and exit')
+                            help='Check for dependencies and exit')
     dep_group.add_argument('--install-dependencies', action='store_true',
-                        help='Automatically install missing dependencies and exit')
+                            help='Automatically install missing dependencies and exit')
     dep_group.add_argument('--skip-dependency-check', action='store_true',
-                        help='Skip dependency checking on startup')
+                            help='Skip dependency checking on startup')
     
     args = parser.parse_args()
     
