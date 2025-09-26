@@ -1,10 +1,14 @@
-#!/usr/bin/env python3
 """
 Unified image analysis utilities for auto-greyscale detection.
 Consolidates analysis logic with optional debug information.
 """
 
-import numpy as np
+try:
+    import numpy as np
+    _HAS_NUMPY = True
+except ImportError:
+    np = None
+    _HAS_NUMPY = False
 from PIL import Image
 from pathlib import Path
 import os
@@ -17,14 +21,16 @@ class ImageAnalyzer:
     def analyze_colorfulness(img_array, pixel_threshold=16):
         """
         Analyze if an image is effectively greyscale by checking pixel color variation.
-        
+
         Args:
             img_array: numpy array of image data (RGB)
             pixel_threshold: threshold for considering a pixel "colored"
-        
+
         Returns:
             tuple: (max_diff, mean_diff, colored_ratio)
         """
+        if not _HAS_NUMPY:
+            raise RuntimeError("analyze_colorfulness requires numpy; please install numpy or use fallback")
         # Calculate per-pixel difference between max and min RGB values
         diffs = img_array.max(axis=2).astype(int) - img_array.min(axis=2).astype(int)
         max_diff = int(diffs.max())
@@ -94,7 +100,7 @@ class ImageAnalyzer:
         Returns:
             bool: True if image should be converted to greyscale
         """
-        max_diff, _, colored_ratio = cls.analyze_colorfulness(img_array, pixel_threshold)
+        _, _, colored_ratio = cls.analyze_colorfulness(img_array, pixel_threshold)
         # Don't convert if there are no colored pixels (already effectively greyscale)
         if colored_ratio == 0.0:
             return False

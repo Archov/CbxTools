@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Centralized path validation and resolution utilities.
 """
@@ -138,13 +137,15 @@ class PathValidator:
         input_path = Path(input_path)
         output_base_dir = Path(output_base_dir)
         
-        if preserve_structure and input_path.parent != input_path.parent.anchor:
-            # Preserve relative directory structure
-            rel_path = input_path.parent.relative_to(input_path.parent.parent)
-            output_dir = output_base_dir / rel_path
+        parent = input_path.parent
+        if preserve_structure and parent.name:
+            # Preserve only the immediate parent directory (stable across platforms)
+            output_dir = output_base_dir / parent.name
         else:
-            # Direct output to base directory
             output_dir = output_base_dir
+
+        if output_dir.exists() and not output_dir.is_dir():
+            raise ValueError(f"Output path exists and is not a directory: {output_dir}")
         
         output_dir.mkdir(parents=True, exist_ok=True)
         return output_dir

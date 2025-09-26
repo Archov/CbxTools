@@ -1,4 +1,4 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.4
 Name: cbxtools
 Version: 1.0.0
 Summary: Tools for working with comic book archives (CBZ/CBR)
@@ -16,3 +16,8 @@ Requires-Python: >=3.6
 Requires-Dist: pillow
 Requires-Dist: rarfile
 Requires-Dist: patool
+Dynamic: author
+Dynamic: classifier
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary

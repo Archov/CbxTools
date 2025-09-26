@@ -34,8 +34,8 @@ class PackagingWorkerBase:
             self.logger.info(f"Packaged {input_file.name} successfully")
             return True, new_size_bytes
             
-        except Exception as e:
-            self.logger.error(f"Error packaging {input_file.name}: {e}")
+        except Exception:
+            self.logger.exception(f"Error packaging {input_file.name}")
             return False, 0
 
 
@@ -119,35 +119,4 @@ class AsynchronousPackagingWorker(PackagingWorkerBase):
 
 class WatchModePackagingWorker(AsynchronousPackagingWorker):
     """Enhanced packaging worker for watch mode with better result tracking."""
-    
-    def _worker_loop(self):
-        """Enhanced worker loop with better result handling."""
-        while True:
-            item = self.packaging_queue.get()
-            if item is None:  # Sentinel
-                self.packaging_queue.task_done()
-                break
-            
-            # Handle both old and new queue item formats
-            if len(item) >= 5:
-                file_output_dir, cbz_output, input_file, result_dict, zip_compresslevel = item
-            else:
-                file_output_dir, cbz_output, input_file, result_dict = item
-                zip_compresslevel = 9
-            
-            success, new_size = self.package_single(
-                file_output_dir, cbz_output, input_file, zip_compresslevel
-            )
-            
-            result_dict["success"] = success
-            result_dict["new_size"] = new_size
-            
-            # Always put result in queue for watch mode stats tracking
-            if self.result_queue:
-                self.result_queue.put({
-                    "file": input_file,
-                    "success": success,
-                    "new_size": new_size
-                })
-            
-            self.packaging_queue.task_done()
+    pass

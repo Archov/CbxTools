@@ -41,7 +41,6 @@ These packages are essential for CBXTools core functionality:
 
 - **pillow** - Required for image processing and WebP conversion (used by `ImageAnalyzer`)
 - **rarfile** - Required for extracting CBR (RAR) archive files (used by `ArchiveHandler`)
-- **patool** - Required for general archive extraction support (used by `ArchiveHandler`)
 - **py7zr** - Required for CB7 (7Z) archive extraction (used by `ArchiveHandler`)
 
 ### Optional Dependencies
@@ -87,10 +86,10 @@ If automatic installation doesn't work or you prefer to install manually:
 
 ```bash
 # Install all dependencies (recommended)
-pip install pillow rarfile patool py7zr numpy matplotlib
+pip install pillow rarfile py7zr numpy matplotlib
 
 # Install only required dependencies
-pip install pillow rarfile patool py7zr
+pip install pillow rarfile py7zr
 
 # Install from setup.py
 pip install -e .
@@ -103,11 +102,11 @@ If you get permission errors during installation, try:
 
 ```bash
 # Install for current user only
-pip install --user pillow rarfile patool py7zr
+pip install --user pillow rarfile py7zr
 
 # Or run with elevated privileges (Windows)
 # Run command prompt as Administrator, then:
-pip install pillow rarfile patool py7zr
+pip install pillow rarfile py7zr
 ```
 
 ### Pip Not Available
@@ -124,13 +123,6 @@ The `rarfile` package requires the `unrar` utility for extracting RAR files:
 - **Windows**: Download unrar.exe and place in PATH
 - **Linux**: `sudo apt install unrar` or `sudo yum install unrar`
 - **macOS**: `brew install unrar`
-
-#### patool
-The `patool` package works with various archive formats and may require additional utilities:
-- For best compatibility, install 7-zip or p7zip
-- **Windows**: Install 7-Zip from 7-zip.org
-- **Linux**: `sudo apt install p7zip-full`
-- **macOS**: `brew install p7zip`
 
 #### py7zr
 For CB7 (7Z) archive support:

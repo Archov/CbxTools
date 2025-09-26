@@ -5,6 +5,7 @@ Now uses consolidated FileSystemUtils.
 """
 
 import logging
+from pathlib import Path
 from .core.filesystem_utils import FileSystemUtils
 
 
@@ -28,7 +29,9 @@ def setup_logging(verbose, silent):
 # Re-export filesystem utilities for backward compatibility
 def get_file_size_formatted(file_path_or_size):
     """Return a tuple of (human_readable_size, size_in_bytes)."""
-    return FileSystemUtils.get_file_size_formatted(file_path_or_size)
+    if isinstance(file_path_or_size, (int, float)):
+        return FileSystemUtils.get_file_size_formatted(file_path_or_size)
+    return FileSystemUtils.get_file_size_formatted(Path(file_path_or_size))
 
 
 def remove_empty_dirs(directory, root_dir, logger):

@@ -108,33 +108,6 @@ class FileSystemUtils:
             else:
                 logger.info("No empty directories found")
     
-    @staticmethod
-    def validate_and_resolve_paths(input_path_str, output_path_str=None):
-        """
-        Validate and resolve input/output paths with consistent error handling.
-        
-        Args:
-            input_path_str: Input path string
-            output_path_str: Optional output path string
-            
-        Returns:
-            tuple: (input_path, output_path) as Path objects
-            
-        Raises:
-            ValueError: If paths are invalid
-        """
-        input_path = Path(input_path_str).resolve()
-        
-        if not input_path.exists():
-            raise ValueError(f"Input path not found: {input_path}")
-        
-        output_path = None
-        if output_path_str:
-            output_path = Path(output_path_str).resolve()
-            # Create output directory if it doesn't exist
-            output_path.mkdir(parents=True, exist_ok=True)
-        
-        return input_path, output_path
     
     @staticmethod
     def ensure_directory_exists(directory_path):

@@ -229,15 +229,22 @@ def convert_to_webp(
     from pathlib import Path
     import multiprocessing
     from concurrent.futures import ProcessPoolExecutor, as_completed
-    
-    image_exts = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'}
+
+    # Ensure logger is always callable
+    if logger is None:
+        class _NullLogger:
+            def debug(self, *a, **k): pass
+            def info(self, *a, **k): pass
+            def warning(self, *a, **k): pass
+            def error(self, *a, **k): pass
+        logger = _NullLogger()
     image_files = []
     non_image_files = []
 
     for root, _, files in os.walk(extract_dir):
         for file in files:
             file_path = Path(root) / file
-            if Path(file).suffix.lower() in image_exts:
+            if ImageAnalyzer.is_image_file(file_path) and file_path.suffix.lower() != '.webp':
                 image_files.append(file_path)
             else:
                 non_image_files.append(file_path)
@@ -339,7 +346,7 @@ def convert_to_webp(
                     conversion_note = ""
                     if was_auto_converted:
                         conversion_note = " [auto→B&W+contrast]"
-                    elif 'grayscale' in str(options) and options.get('grayscale', False):
+                    elif grayscale:
                         conversion_note = " [manual→B&W+contrast]"
                     
                     logger.debug(

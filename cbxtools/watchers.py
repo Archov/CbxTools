@@ -141,8 +141,11 @@ def process_single_image_file(image_file, output_dir, args, logger):
         else:
             logger.error(f"Error converting {image_file}: {error}")
             return False, 0, 0
+    except (IOError, OSError, ValueError) as e:
+        logger.exception(f"Error processing {image_file}: {e}")
+        return False, 0, 0
     except Exception as e:
-        logger.error(f"Error processing {image_file}: {e}")
+        logger.exception(f"Unexpected error processing {image_file}: {e}")
         return False, 0, 0
 
 
@@ -195,8 +198,11 @@ def process_image_directory(image_dir, output_dir, args, logger, packaging_queue
             logger.info(f"Converted folder: {image_dir.name}")
             return True, orig_size, new_size
 
+    except (IOError, OSError, ValueError) as e:
+        logger.exception(f"Error processing folder {image_dir}: {e}")
+        return False, 0, 0
     except Exception as e:
-        logger.error(f"Error processing folder {image_dir}: {e}")
+        logger.exception(f"Unexpected error processing folder {image_dir}: {e}")
         return False, 0, 0
 
 

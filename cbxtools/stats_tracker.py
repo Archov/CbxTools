@@ -136,8 +136,7 @@ def print_summary_report(processed_files, total_original_size, total_new_size, l
                 if orig_size > 0:
                     pct = (diff / orig_size) * 100
                     pct_str = f"{pct:.1f}%"
-                    if diff < 0:
-                        pct_str = f"-{pct_str}"
+                    # pct already carries the sign
                 else:
                     pct_str = "N/A"
                 logger.info(

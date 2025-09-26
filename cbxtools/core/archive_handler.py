@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Unified archive handling for CBZ/CBR/CB7 files.
 Consolidates extraction and creation logic.
@@ -8,12 +7,13 @@ import os
 import zipfile
 import tempfile
 from pathlib import Path
+from typing import ClassVar
 
 
 class ArchiveHandler:
     """Centralized archive handling for comic book formats."""
-    
-    SUPPORTED_EXTENSIONS = {'.cbz', '.cbr', '.cb7', '.zip', '.rar', '.7z'}
+
+    SUPPORTED_EXTENSIONS: ClassVar[set[str]] = {'.cbz', '.cbr', '.cb7', '.zip', '.rar', '.7z'}
     
     @classmethod
     def is_supported_archive(cls, file_path):
@@ -39,22 +39,68 @@ class ArchiveHandler:
     
     @staticmethod
     def _extract_zip(archive_path, extract_dir):
-        """Extract ZIP/CBZ archive."""
-        with zipfile.ZipFile(archive_path, 'r') as zip_ref:
-            zip_ref.extractall(extract_dir)
+        """Extract ZIP/CBZ archive with path validation."""
+        import shutil
+
+        with zipfile.ZipFile(archive_path, 'r') as z:
+            dest = Path(extract_dir).resolve()
+            for m in z.infolist():
+                name = Path(m.filename)
+                # Disallow absolute paths
+                if name.is_absolute():
+                    raise ValueError(f"Unsafe absolute path in ZIP entry: {m.filename}")
+                target = (dest / name).resolve()
+                # Disallow traversal outside dest
+                if not str(target).startswith(str(dest) + os.sep):
+                    raise ValueError(f"Path traversal detected in ZIP entry: {m.filename}")
+                if m.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with z.open(m, 'r') as src, open(target, 'wb') as dst:
+                        shutil.copyfileobj(src, dst)
     
     @staticmethod
     def _extract_rar(archive_path, extract_dir):
-        """Extract RAR/CBR archive."""
-        import patoolib
-        patoolib.extract_archive(str(archive_path), outdir=str(extract_dir))
+        """Extract RAR/CBR archive with path validation."""
+        import rarfile
+        import shutil
+
+        dest = Path(extract_dir).resolve()
+        with rarfile.RarFile(archive_path) as rf:
+            for m in rf.infolist():
+                name = Path(m.filename)
+                if name.is_absolute():
+                    raise ValueError(f"Unsafe absolute path in RAR entry: {m.filename}")
+                target = (dest / name).resolve()
+                if not str(target).startswith(str(dest) + os.sep):
+                    raise ValueError(f"Path traversal detected in RAR entry: {m.filename}")
+                if m.isdir():
+                    target.mkdir(parents=True, exist_ok=True)
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with rf.open(m) as src, open(target, 'wb') as dst:
+                        shutil.copyfileobj(src, dst)
     
     @staticmethod
     def _extract_7z(archive_path, extract_dir):
-        """Extract 7Z/CB7 archive."""
+        """Extract 7Z/CB7 archive with path validation."""
         import py7zr
+
+        dest = Path(extract_dir).resolve()
         with py7zr.SevenZipFile(archive_path, mode='r') as z:
-            z.extractall(path=extract_dir)
+            members = z.getnames()
+            safe = []
+            for name in members:
+                p = Path(name)
+                if p.is_absolute():
+                    raise ValueError(f"Unsafe absolute path in 7z entry: {name}")
+                target = (dest / p).resolve()
+                if not str(target).startswith(str(dest) + os.sep):
+                    raise ValueError(f"Path traversal detected in 7z entry: {name}")
+                safe.append(name)
+            if safe:
+                z.extract(targets=safe, path=str(dest))
     
     @classmethod
     def create_cbz(cls, source_dir, output_file, logger=None, compresslevel=9):
@@ -121,9 +167,10 @@ class ArchiveHandler:
         temp_dir = tempfile.mkdtemp()
         try:
             cls.extract_archive(archive_path, temp_dir, logger)
-            return temp_dir
         except Exception:
             # Clean up on failure
             import shutil
             shutil.rmtree(temp_dir, ignore_errors=True)
             raise
+        else:
+            return temp_dir
