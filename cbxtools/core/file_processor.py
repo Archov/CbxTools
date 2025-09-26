@@ -69,7 +69,7 @@ class FileProcessor:
                 return False, 0, 0
                 
         except Exception as e:
-            self.logger.error(f"Error processing {item}: {e}")
+            self.logger.exception(f"Error processing {item}: {e}")
             return False, 0, 0
     
     def _process_archive_file(self, archive_file: Path, output_dir: Path, args: Any) -> Tuple[bool, int, int]:
@@ -105,7 +105,7 @@ class FileProcessor:
         from ..conversion import convert_single_image
         try:
             # Get original file size
-            orig_size_str, orig_size_bytes = FileSystemUtils.get_file_size_formatted(image_file)
+            _orig_size_str, orig_size_bytes = FileSystemUtils.get_file_size_formatted(image_file)
             
             # Convert the image
             convert_single_image(
@@ -126,7 +126,7 @@ class FileProcessor:
             # Calculate new size
             output_file = output_dir / f"{image_file.stem}.webp"
             if output_file.exists():
-                new_size_str, new_size_bytes = FileSystemUtils.get_file_size_formatted(output_file)
+                _new_size_str, new_size_bytes = FileSystemUtils.get_file_size_formatted(output_file)
                 self.logger.info(f"Converted single image: {image_file.name}")
                 return True, orig_size_bytes, new_size_bytes
             else:
@@ -134,7 +134,7 @@ class FileProcessor:
                 return False, orig_size_bytes, 0
                 
         except Exception as e:
-            self.logger.error(f"Error processing single image {image_file}: {e}")
+            self.logger.exception(f"Error processing single image {image_file}: {e}")
             return False, 0, 0
     
     def _process_image_folder(self, image_dir: Path, output_dir: Path, args: Any) -> Tuple[bool, int, int]:
@@ -170,8 +170,13 @@ class FileProcessor:
             
             # Create archive if requested
             if not args.no_cbz:
+                # Validate output format
+                output_format = getattr(args, 'output', 'cbz')
+                if output_format.lower() not in ArchiveHandler.FORMAT_EXTENSIONS:
+                    raise ValueError(f"Unsupported output format: {output_format}. Supported: {', '.join(ArchiveHandler.FORMAT_EXTENSIONS)}")
+                
                 # Get the correct extension for the output format
-                extension = ArchiveHandler.get_extension_for_format(getattr(args, 'output', 'cbz'))
+                extension = ArchiveHandler.get_extension_for_format(output_format)
                 archive_output = output_dir / f"{image_dir.name}{extension}"
                 
                 if self.packaging_queue is not None:
@@ -195,7 +200,7 @@ class FileProcessor:
                 return True, orig_size, new_size
                 
         except Exception as e:
-            self.logger.error(f"Error processing image folder {image_dir}: {e}")
+            self.logger.exception(f"Error processing image folder {image_dir}: {e}")
             return False, 0, 0
     
     def _is_image_folder(self, directory: Path) -> bool:
@@ -243,7 +248,7 @@ class FileProcessor:
                 if input_base_dir:
                     FileSystemUtils.remove_empty_dirs(item.parent, input_base_dir, self.logger)
         except Exception as e:
-            self.logger.error(f"Error deleting {item}: {e}")
+            self.logger.exception(f"Error deleting {item}: {e}")
 
 
 def find_processable_items(directory: Path, recursive: bool = False) -> list[Path]:
@@ -274,8 +279,7 @@ def find_processable_items(directory: Path, recursive: bool = False) -> list[Pat
         for subdir in directory.rglob('*'):
             if subdir.is_dir() and subdir != directory:
                 # Check if this directory contains images
-                image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.tif', '.webp'}
-                has_images = any(f.suffix.lower() in image_extensions for f in subdir.iterdir() if f.is_file())
+                has_images = any(ImageAnalyzer.is_image_file(f) for f in subdir.iterdir() if f.is_file())
                 if has_images:
                     items.append(subdir)
     

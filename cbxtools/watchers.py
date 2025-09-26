@@ -13,7 +13,6 @@ import threading
 import sys 
 from pathlib import Path
 
-from .archives import find_comic_archives, is_image_file
 from .core.archive_handler import ArchiveHandler
 from .core.image_analyzer import ImageAnalyzer
 from .core.filesystem_utils import FileSystemUtils
@@ -301,7 +300,7 @@ def watch_directory(input_dir, output_dir, args, logger, stats_tracker=None):
 
                     if success:
                         # Handle direct result vs async result
-                        if not args.no_cbz and not is_image_file(item):
+                        if not args.no_cbz and not ImageAnalyzer.is_image_file(item):
                             # Track the pending result for later statistics update (archives and folders)
                             pending_results[item] = original_size
                         else:

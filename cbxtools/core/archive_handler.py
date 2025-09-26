@@ -16,7 +16,7 @@ class ArchiveHandler:
     SUPPORTED_EXTENSIONS: ClassVar[set[str]] = {'.cbz', '.cbr', '.cb7', '.zip', '.rar', '.7z'}
     
     # Format to extension mapping
-    FORMAT_EXTENSIONS = {
+    FORMAT_EXTENSIONS: ClassVar[dict[str, str]] = {
         'zip': '.zip',
         'cbz': '.cbz', 
         'rar': '.rar',
@@ -34,6 +34,11 @@ class ArchiveHandler:
     def get_extension_for_format(cls, format_type):
         """Get the file extension for a given format type."""
         return cls.FORMAT_EXTENSIONS.get(format_type.lower(), '.cbz')
+    
+    @classmethod
+    def get_supported_formats(cls) -> tuple[str, ...]:
+        """Get tuple of supported format types."""
+        return tuple(cls.FORMAT_EXTENSIONS.keys())
     
     @classmethod
     def extract_archive(cls, archive_path, extract_dir, logger=None):
@@ -148,19 +153,17 @@ class ArchiveHandler:
         # Sort files - typically comic pages are numbered sequentially
         all_files.sort(key=lambda x: str(x[1]))
 
-        # Create archive based on format
-        if format_type in ('zip', 'cbz'):
-            cls._create_zip_archive(output_file, all_files, compresslevel, logger, image_count, other_count)
-        elif format_type in ('rar', 'cbr'):
-            cls._create_rar_archive(output_file, all_files, compresslevel, logger, image_count, other_count)
-        elif format_type in ('7z', 'cb7'):
-            cls._create_7z_archive(output_file, all_files, compresslevel, logger, image_count, other_count)
-        else:
-            supported_formats = ('zip', 'cbz', 'rar', 'cbr', '7z', 'cb7')
-            raise ValueError(
-                f"Unsupported output format: {format_type}. "
-                f"Supported formats are: {', '.join(supported_formats)}"
-            )
+        # Create archive based on format using dispatch dict
+        creators = {
+            'zip': cls._create_zip_archive, 'cbz': cls._create_zip_archive,
+            'rar': cls._create_rar_archive, 'cbr': cls._create_rar_archive,
+            '7z': cls._create_7z_archive,  'cb7': cls._create_7z_archive,
+        }
+        creator = creators.get(format_type)
+        if not creator:
+            supported_formats = tuple(creators.keys())
+            raise ValueError(f"Unsupported output format: {format_type}. Supported formats are: {', '.join(supported_formats)}")
+        creator(output_file, all_files, compresslevel, logger, image_count, other_count)
     
     @staticmethod
     def _create_zip_archive(output_file, all_files, compresslevel, logger, image_count, other_count):
@@ -182,7 +185,7 @@ class ArchiveHandler:
                     logger.debug(f"Added {file_count} WebP images to {output_file}")
     
     @staticmethod
-    def _create_rar_archive(output_file, all_files, compresslevel, logger, image_count, other_count):
+    def _create_rar_archive(_output_file, _all_files, _compresslevel, logger, _image_count, _other_count):
         """Create RAR/CBR archive (not supported)."""
         msg = (
             "RAR/CBR output is not supported: Python rarfile does not provide creation. "
