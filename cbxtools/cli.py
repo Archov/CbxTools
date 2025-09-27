@@ -1116,7 +1116,6 @@ def handle_stats_command(args, logger, stats_tracker=None):
     if hasattr(args, "file") and args.file:
         # Would create/use a different stats tracker
         logger.info(f"Using custom stats file: {args.file}")
-        return 0
     # Handle --disable option
     if hasattr(args, "disable") and args.disable:
         logger.info("Statistics tracking disabled")
