@@ -860,7 +860,6 @@ def handle_convert_command(args, logger, stats_tracker=None):
     if hasattr(args, "preset") and args.preset != "default":
         try:
             parser_defaults = {
-            parser_defaults = {
                 "quality": 80,
                 "lossless": False,
                 "method": 4,
