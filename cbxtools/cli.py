@@ -64,7 +64,8 @@ def apply_global_settings(args, logger=None):
         args.verbose = True
     if (not hasattr(args, "silent") or not args.silent) and settings.get("silent", False):
         args.silent = True
-    if (not hasattr(args, "threads") or args.threads is None) and "threads" in settings:
+    unset_threads = not hasattr(args, "threads") or args.threads in (None, 0)
+    if unset_threads and "threads" in settings:
         args.threads = settings["threads"]
     return args
 
@@ -1055,7 +1056,7 @@ def handle_config_settings(args, logger):
         return 1
 
 
-def handle_config_command(args, logger):
+def handle_config_command(args, logger, stats_tracker=None):
     """Handle the config command."""
     # Handle subcommands
     if hasattr(args, "config_command") and args.config_command:
@@ -1065,7 +1066,8 @@ def handle_config_command(args, logger):
             return handle_config_settings(args, logger)
     else:
         # Save global configuration options (explicit save-globals behavior)
-        settings = {}
+        settings, _ = load_global_settings()
+        settings = settings.copy()
         if hasattr(args, "verbose") and args.verbose:
             settings["verbose"] = True
         if hasattr(args, "silent") and args.silent:
@@ -1147,16 +1149,12 @@ def main():
                 file=sys.stderr,
             )
             return 1
-    # Setup logging - for config command, use saved settings, otherwise use
-    # defaults
-    if args.command == "config":
-        logger = setup_logging(
-            getattr(args, "verbose", False), getattr(args, "silent", False)
-        )
-    else:
-        logger = setup_logging(False, False)
-    # Apply global settings from saved configuration (CLI args take precedence)
-    args = apply_global_settings(args, logger)
+    # Apply global settings before configuring logging so verbosity is respected
+    global_settings, _ = load_global_settings()
+    args = apply_global_settings(args)
+    effective_verbose = getattr(args, "verbose", False) or global_settings.get("verbose", False)
+    effective_silent = getattr(args, "silent", False) or global_settings.get("silent", False)
+    logger = setup_logging(effective_verbose, effective_silent)
     # Check dependencies early (automatic, no CLI control)
     # Skip dependency checks for commands that don't need them (config, stats,
     # help-like commands)
