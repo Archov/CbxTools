@@ -872,7 +872,7 @@ def handle_convert_command(args, logger, stats_tracker=None):
                 "auto_greyscale_pixel_threshold": 16,
                 "auto_greyscale_percent_threshold": 0.01,
                 "output": "cbz",
-               "zip_compression": 6,
+                "zip_compression": 6,
                 "recursive": False,
             }
             overrides = {
