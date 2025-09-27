@@ -6,6 +6,7 @@ Enhanced with automatic greyscale detection, conversion, and dependency manageme
 import argparse
 import json
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -18,6 +19,27 @@ from .presets import (
 )
 from .stats_tracker import StatsTracker
 from .utils import setup_logging
+
+SAFE_PIP_REQUIREMENT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-\[\],=<>!~+]*$")
+
+
+def sanitize_pip_requirement(requirement):
+    """Validate requirement strings passed to ``pip install``.
+
+    Returns the sanitized requirement string when it is safe to forward to
+    ``pip``. ``None`` is returned when the value is empty, resembles a pip
+    option, or contains potentially unsafe characters.
+    """
+
+    requirement = requirement.strip()
+    if not requirement:
+        return None
+    # Prevent passing pip options (which begin with '-') as package names.
+    if requirement.startswith("-"):
+        return None
+    if not SAFE_PIP_REQUIREMENT_PATTERN.fullmatch(requirement):
+        return None
+    return requirement
 
 # Global settings management
 DEFAULT_CONFIG_DIR = Path.home() / ".cbxtools"
@@ -316,26 +338,28 @@ def install_dependencies(deps_to_install, logger):
     Returns:
         dict: Installation results
     """
-    import shlex
-
-    # Accept package requirements as-is (including version pins)
-    # Validate and sanitize package names to prevent command injection
+    # Accept package requirements as-is (including version pins) while
+    # validating they cannot be interpreted as pip options or contain unsafe
+    # characters. This prevents command injection when invoking pip through
+    # subprocess.
     packages = []
     for dep in deps_to_install:
         package_name = dep["package_name"]
-        # Basic validation: only allow alphanumeric, hyphens, dots, underscores, and version operators
-        if re.match(r"^[a-zA-Z0-9._\-\>\<\=\!]+$", package_name):
-            packages.append(package_name)
-        else:
-            logger.warning(f"Skipping potentially unsafe package name: {package_name}")
+        sanitized = sanitize_pip_requirement(package_name)
+        if sanitized is None:
+            logger.warning(
+                "Skipping potentially unsafe package requirement: %s",
+                package_name,
+            )
             continue
+        packages.append(sanitized)
     if not packages:
         logger.error("No valid packages to install")
         return {
             "all_required_available": False,
             "installation_error": "No valid packages",
         }
-    logger.info(f"\nInstalling dependencies: {', '.join(packages)}")
+    logger.info("\nInstalling dependencies: %s", ", ".join(packages))
     # Check if pip is available
     try:
         # SECURITY: Static command - no user input involved
@@ -355,16 +379,12 @@ def install_dependencies(deps_to_install, logger):
         logger.error(f"  pip install {' '.join(shlex.quote(pkg) for pkg in packages)}")
         return {"all_required_available": False, "pip_unavailable": True}
     try:
-        # Use subprocess to install packages
-        # SECURITY: List format prevents shell injection. Packages validated with strict regex above.
-        # Static command prefix ensures first arguments are never user-controlled.
-        # Validate that all packages are strings and contain only safe characters
-        assert all(isinstance(pkg, str) for pkg in packages), "All packages must be strings"
-        assert all(re.match(r"^[a-zA-Z0-9._\-\>\<\=\!]+$", pkg) for pkg in packages), "Unsafe package names detected"
-
+        # Use subprocess to install packages. Arguments are passed as a list to
+        # avoid shell interpretation and package names are validated above to
+        # block option-style injections.
         cmd_prefix = [sys.executable, "-m", "pip", "install"]
         cmd = cmd_prefix + packages
-        logger.info(f"Running: {' '.join(cmd)}")
+        logger.info("Running: %s", " ".join(shlex.quote(part) for part in cmd))
         # Explicitly disable shell to ensure no shell interpretation
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, shell=False)
         if result.returncode == 0:
