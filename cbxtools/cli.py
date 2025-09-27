@@ -338,6 +338,7 @@ def install_dependencies(deps_to_install, logger):
     logger.info(f"\nInstalling dependencies: {', '.join(packages)}")
     # Check if pip is available
     try:
+        # SECURITY: Static command - no user input involved
         subprocess.run(
             [sys.executable, "-m", "pip", "--version"],
             capture_output=True,
@@ -355,10 +356,17 @@ def install_dependencies(deps_to_install, logger):
         return {"all_required_available": False, "pip_unavailable": True}
     try:
         # Use subprocess to install packages
-        # SECURITY: Using list format prevents shell injection. Package names are validated above.
-        cmd = [sys.executable, "-m", "pip", "install"] + packages
+        # SECURITY: List format prevents shell injection. Packages validated with strict regex above.
+        # Static command prefix ensures first arguments are never user-controlled.
+        # Validate that all packages are strings and contain only safe characters
+        assert all(isinstance(pkg, str) for pkg in packages), "All packages must be strings"
+        assert all(re.match(r"^[a-zA-Z0-9._\-\>\<\=\!]+$", pkg) for pkg in packages), "Unsafe package names detected"
+
+        cmd_prefix = [sys.executable, "-m", "pip", "install"]
+        cmd = cmd_prefix + packages
         logger.info(f"Running: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        # Explicitly disable shell to ensure no shell interpretation
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, shell=False)
         if result.returncode == 0:
             logger.info("✓ Dependencies installed successfully!")
             logger.info(
@@ -440,7 +448,15 @@ For help on a specific command, use: %(prog)s <command> --help""",
         usage="cbxtools [GLOBAL_OPTIONS] convert [OPTIONS] input_path [output_dir]",
         add_help=False,
     )
-    convert_parser.set_defaults(func=handle_convert_command)
+    convert_parser.set_defaults(
+        func=handle_convert_command,
+        verbose=False,
+        silent=False,
+        threads=0,
+        keep_originals=False,
+        no_cbz=False,
+        zip_compression=6,
+    )
     _add_convert_arguments(convert_parser)
     # Watch command
     watch_parser = subparsers.add_parser(
@@ -583,6 +599,7 @@ def _add_convert_arguments(parser):
         type=int,
         choices=range(10),
         default=6,
+        dest="zip_compression",
         help="Archive compression level (0-9, default: 6)",
     )
     # General Processing
@@ -599,6 +616,23 @@ def _add_convert_arguments(parser):
         "-r",
         action="store_true",
         help="Process subdirectories recursively",
+    )
+    general_group.add_argument(
+        "--threads",
+        type=int,
+        default=0,
+        help="Number of worker threads to use (0 = auto-detect)",
+    )
+    general_group.add_argument(
+        "--keep-originals",
+        action="store_true",
+        help="Keep source archives after successful conversion",
+    )
+    general_group.add_argument(
+        "--no-cbz",
+        dest="no_cbz",
+        action="store_true",
+        help="Skip creating CBZ/ZIP output archives",
     )
     general_group.add_argument(
         "-h", "--help", action="help", help="Show this help message and exit"
@@ -889,7 +923,7 @@ def handle_convert_command(args, logger, stats_tracker=None):
             success_count,
             total_original_size,
             total_new_size,
-            processed_files,
+            _processed_files,
         ) = process_archive_files(archives, output_dir, args, logger)
         # Calculate execution time
         execution_time = time.time() - start_time
