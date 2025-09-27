@@ -1,0 +1,21 @@
+---
+alwaysApply: false
+---
+OUTPUT CONTRACT (every reply, top of message):
+Reasoning Summary (≤5 bullets):
+- Plan: 1–3 steps for the next change
+- Assumptions: …
+- Unknowns / Requests for info: …
+- Evidence: file paths + line ranges OR test names + pass counts
+- Next Action: …
+
+RULES:
+- If any Unknowns remain, STOP after the summary and ask for the missing info.
+- Do not proceed with edits without Evidence.
+- End with one status line: 
+  “Work in progress; needs review.” | “Meets the stated requirements for this task.” | “Ready for the next round of testing.”
+
+CHECKPOINTS:
+- For tasks estimated > 5 minutes or touching > 2 files, output an incremental plan first.
+- Implement step 1, show diff/patch + tests run, then STOP and wait for approval.
+- Repeat.

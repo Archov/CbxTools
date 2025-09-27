@@ -60,13 +60,9 @@ def apply_global_settings(args, logger=None):
     if error and logger:
         logger.warning(f"Could not load global settings: {error}")
     # Add settings as attributes only if not already set by command line
-    if (not hasattr(args, "verbose") or not args.verbose) and settings.get(
-        "verbose", False
-    ):
+    if (not hasattr(args, "verbose") or not args.verbose) and settings.get("verbose", False):
         args.verbose = True
-    if (not hasattr(args, "silent") or not args.silent) and settings.get(
-        "silent", False
-    ):
+    if (not hasattr(args, "silent") or not args.silent) and settings.get("silent", False):
         args.silent = True
     if (not hasattr(args, "threads") or args.threads is None) and "threads" in settings:
         args.threads = settings["threads"]
@@ -134,9 +130,7 @@ def parse_requirements_file(requirements_path):
                 dependencies[category][import_name] = {
                     "import_name": import_name,
                     "package_name": package_name,
-                    "description": (
-                        comment_part if comment_part else f"{import_lookup_key} package"
-                    ),
+                    "description": comment_part or f"{import_lookup_key} package",
                     "available": False,
                 }
     except FileNotFoundError:
@@ -268,16 +262,29 @@ def offer_to_install_dependencies(missing_deps, logger, all_dependencies=None):
                     in required_package_names
                 ]
             else:
-                # Fallback to minimal hardcoded list if dependencies not provided
-                # Only include packages that are truly required for basic
-                # functionality
-                required_package_names_lower = ["pillow"]
-                required_deps = [
-                    dep
-                    for dep in missing_deps
-                    if normalize_package_name(dep["package_name"])
-                    in required_package_names_lower
-                ]
+                # Parse requirements.txt to get required packages dynamically
+                requirements_path = Path(__file__).parent.parent / "requirements.txt"
+                try:
+                    dependencies = parse_requirements_file(requirements_path)
+                    required_package_names = [
+                        normalize_package_name(dep["package_name"])
+                        for dep in dependencies["required"].values()
+                    ]
+                    required_deps = [
+                        dep
+                        for dep in missing_deps
+                        if normalize_package_name(dep["package_name"])
+                        in required_package_names
+                    ]
+                except Exception:
+                    # Ultimate fallback to minimal hardcoded list
+                    required_package_names_lower = ["pillow"]
+                    required_deps = [
+                        dep
+                        for dep in missing_deps
+                        if normalize_package_name(dep["package_name"])
+                        in required_package_names_lower
+                    ]
             if not required_deps:
                 logger.info(
                     "No required dependencies found in missing dependencies list."
@@ -311,17 +318,11 @@ def install_dependencies(deps_to_install, logger):
     """
     import shlex
 
-    # Validate package names to ensure they only contain safe characters
+    # Accept package requirements as-is (including version pins)
     packages = []
     for dep in deps_to_install:
         package_name = dep["package_name"]
-        # Basic validation: only allow alphanumeric, hyphens, dots, and
-        # underscores
-        if re.match(r"^[a-zA-Z0-9._-]+$", package_name):
-            packages.append(package_name)
-        else:
-            logger.warning(f"Skipping invalid package name: {package_name}")
-            continue
+        packages.append(package_name)
     if not packages:
         logger.error("No valid packages to install")
         return {
@@ -796,18 +797,27 @@ def handle_convert_command(args, logger, stats_tracker=None):
     # Apply preset if specified
     if hasattr(args, "preset") and args.preset != "default":
         try:
-            # Extract relevant CLI arguments as overrides
-            overrides = {}
-            preset_params = [
-                "quality", "lossless", "method", "max_width", "max_height", 
-                "preprocessing", "grayscale", "auto_contrast", "auto_greyscale",
-                "auto_greyscale_pixel_threshold", "auto_greyscale_percent_threshold",
-                "output", "compression", "recursive"
-            ]
-            
-            for param in preset_params:
-                if hasattr(args, param):
-                    overrides[param] = getattr(args, param)
+            parser_defaults = {
+                "quality": 80,
+                "lossless": False,
+                "method": 4,
+                "max_width": None,
+                "max_height": None,
+                "preprocessing": None,
+                "grayscale": False,
+                "auto_contrast": False,
+                "auto_greyscale": False,
+                "auto_greyscale_pixel_threshold": 16,
+                "auto_greyscale_percent_threshold": 0.01,
+                "output": "cbz",
+                "compression": 6,
+                "recursive": False,
+            }
+            overrides = {
+                key: getattr(args, key)
+                for key, default in parser_defaults.items()
+                if hasattr(args, key) and getattr(args, key) != default
+            }
             
             # Apply preset with overrides
             preset_params_dict = apply_preset_with_overrides(args.preset, overrides, logger=logger)
@@ -817,7 +827,7 @@ def handle_convert_command(args, logger, stats_tracker=None):
                 setattr(args, key, value)
             
             logger.debug(f"Applied preset: {args.preset}")
-        except Exception as e:
+        except (KeyError, ValueError, TypeError) as e:
             logger.error(f"Failed to apply preset '{args.preset}': {e}")
             return 1
     # Validate input path
@@ -826,7 +836,7 @@ def handle_convert_command(args, logger, stats_tracker=None):
         if not input_path.exists():
             logger.error(f"Input path does not exist: {input_path}")
             return 1
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.error(f"Invalid input path: {e}")
         return 1
     # Determine output directory
@@ -841,7 +851,7 @@ def handle_convert_command(args, logger, stats_tracker=None):
     # Create output directory if it doesn't exist
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
+    except OSError as e:
         logger.error(f"Failed to create output directory {output_dir}: {e}")
         return 1
     logger.info(f"Converting: {input_path}")
@@ -859,7 +869,7 @@ def handle_convert_command(args, logger, stats_tracker=None):
             logger.warning("No archives found to process")
             return 0
         logger.info(f"Found {len(archives)} items to process")
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.error(f"Failed to find archives: {e}")
         return 1
     # Process archives
@@ -897,7 +907,7 @@ def handle_convert_command(args, logger, stats_tracker=None):
         else:
             logger.warning("No archives were successfully processed")
         return 0 if success_count > 0 else 1
-    except Exception as e:
+    except (OSError, ValueError, ImportError) as e:
         logger.error(f"Error during conversion: {e}")
         return 1
 
@@ -1013,7 +1023,7 @@ def handle_config_command(args, logger):
         elif args.config_command == "settings":
             return handle_config_settings(args, logger)
     else:
-        # Save global configuration options
+        # Save global configuration options (explicit save-globals behavior)
         settings = {}
         if hasattr(args, "verbose") and args.verbose:
             settings["verbose"] = True
@@ -1022,9 +1032,10 @@ def handle_config_command(args, logger):
         if hasattr(args, "threads") and args.threads is not None:
             settings["threads"] = args.threads
         if settings:
+            logger.info("Saving global settings...")
             success, error = save_global_settings(settings)
             if success:
-                logger.info("Global settings saved successfully")
+                logger.info("✓ Global settings saved successfully")
                 return 0
             else:
                 logger.error(f"Failed to save global settings: {error}")
@@ -1033,6 +1044,7 @@ def handle_config_command(args, logger):
             logger.info(
                 "No settings to save. Use --verbose, --silent, or --threads to set global options."
             )
+            logger.info("Note: This command now explicitly saves global settings when options are provided.")
             return 0
 
 
@@ -1110,9 +1122,7 @@ def main():
     skip_dep_check_commands = {"config", "stats"}
     if args.command not in skip_dep_check_commands:
         dep_status = check_and_install_dependencies(logger, auto_install=False)
-        if not dep_status["all_required_available"] and not dep_status.get(
-            "user_declined", False
-        ):
+        if not dep_status["all_required_available"] and not dep_status.get("user_declined", False):
             logger.error(
                 "Required dependencies are missing. Please install them and try again."
             )
@@ -1129,8 +1139,7 @@ def main():
         # Enable stats by default for other commands
         stats_tracker = StatsTracker()
     # Dispatch to appropriate command handler using func attribute
-    func = args.func  # This will be set by set_defaults() on each subparser
-    return func(args, logger, stats_tracker)
+    return args.func(args, logger, stats_tracker)
 
 
 if __name__ == "__main__":
