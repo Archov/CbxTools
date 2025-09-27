@@ -319,10 +319,16 @@ def install_dependencies(deps_to_install, logger):
     import shlex
 
     # Accept package requirements as-is (including version pins)
+    # Validate and sanitize package names to prevent command injection
     packages = []
     for dep in deps_to_install:
         package_name = dep["package_name"]
-        packages.append(package_name)
+        # Basic validation: only allow alphanumeric, hyphens, dots, underscores, and version operators
+        if re.match(r"^[a-zA-Z0-9._\-\>\<\=\!]+$", package_name):
+            packages.append(package_name)
+        else:
+            logger.warning(f"Skipping potentially unsafe package name: {package_name}")
+            continue
     if not packages:
         logger.error("No valid packages to install")
         return {
@@ -349,6 +355,7 @@ def install_dependencies(deps_to_install, logger):
         return {"all_required_available": False, "pip_unavailable": True}
     try:
         # Use subprocess to install packages
+        # SECURITY: Using list format prevents shell injection. Package names are validated above.
         cmd = [sys.executable, "-m", "pip", "install"] + packages
         logger.info(f"Running: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
