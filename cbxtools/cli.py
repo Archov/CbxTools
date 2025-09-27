@@ -859,6 +859,7 @@ def handle_convert_command(args, logger, stats_tracker=None):
     if hasattr(args, "preset") and args.preset != "default":
         try:
             parser_defaults = {
+            parser_defaults = {
                 "quality": 80,
                 "lossless": False,
                 "method": 4,
@@ -871,7 +872,7 @@ def handle_convert_command(args, logger, stats_tracker=None):
                 "auto_greyscale_pixel_threshold": 16,
                 "auto_greyscale_percent_threshold": 0.01,
                 "output": "cbz",
-                "compression": 6,
+               "zip_compression": 6,
                 "recursive": False,
             }
             overrides = {
