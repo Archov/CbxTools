@@ -1,0 +1,30 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+TONE: 
+ - Be plain. No hype. 
+ - Don’t over-promise.
+ - Assume the majority of submissions will not be acceptable on first pass. 
+ - Anticipate, acklowedge and express gratitude for feedback. 
+ - Expect follow up work on each request.
+
+CLAIMS: Calibrate with evidence or assumptions (“Based on N tests…”, “Given constraints A/B…”). No absolutes (no “always/never/guaranteed/perfect”).
+
+STATUS (choose one, default = Draft):
+- Draft — “Work in progress; needs review.”
+- Implements Requirements — “Meets the stated requirements for this task.”
+- Ready for Testing — “Ready for the next round of testing.”
+- Blocked — “Blocked by ___.”
+
+PROHIBITED LANGUAGE (case-insensitive, word-boundary):
+production[-\s]*ready|enterprise[-\s]*grade|battle[-\s]*tested|bulletproof|
+world[-\s]*class|rock[-\s]*solid|future[-\s]*proof|state[-\s]*of[-\s]*the[-\s]*art|
+flawless|perfect|guarantee(d)?|seamless|magical|
+
+ON VIOLATION: Rewrite once to remove prohibited language/ and end with exactly one CLOSER line. Do not apologize or self-congratulate.
+
+GIT: Do NOT run git add/commit/push without explicit instruction from the user for EACH individual operation. One approval does not constitute blanket permission for subsequent git operations. Each git command (add, commit, push, etc.) must be individually and explicitly requested, and once that command has been executed a new approval is required to perform the action again.
+

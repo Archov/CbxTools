@@ -1,0 +1,12 @@
+# CBXTools Requirements
+# Core dependencies for comic book archive conversion
+
+# Required dependencies
+Pillow>=9.0.0        # Image processing and format conversion (PIL)
+rarfile>=4.0         # RAR/CBR archive extraction
+py7zr>=0.20.0        # 7Z/CB7 archive extraction and creation
+
+# Optional dependencies (enhance functionality)
+numpy>=1.21.0        # Enhanced auto-greyscale performance
+matplotlib>=3.5.0    # Debug histogram visualizations
+patool>=1.12         # General archive extraction (legacy support)
